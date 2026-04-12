@@ -138,11 +138,32 @@ function runYtDlp(args: string[]): Promise<string> {
   });
 }
 
-export async function fetchVideoInfo(url: string): Promise<VideoMetadata> {
+export async function fetchVideoInfo(url: string): Promise<VideoMetadata[]> {
   console.log(`[ytDlpService] fetchVideoInfo started for URL: ${url}`);
 
   const settings = getSettings();
   let candidateArgs: string[][] = [];
+
+  // Identify YouTube playlist type
+  let isRealPlaylist = false;
+  try {
+    const parsedUrl = new URL(url);
+    const listParam = parsedUrl.searchParams.get('list');
+    const startRadio = parsedUrl.searchParams.has('start_radio');
+    
+    // Auto-generated Mixes start with 'RD'. start_radio=1 also indicates a Mix.
+    // If there is no 'list', it's a single video.
+    // Only treat it as a true playlist if list exists, doesn't start with RD, and no start_radio.
+    if (listParam && !listParam.startsWith('RD') && !startRadio) {
+      isRealPlaylist = true;
+    }
+  } catch (e) {
+    // URL parsing failed, fallback to default behavior (single video)
+  }
+
+  const playlistArgs = isRealPlaylist 
+    ? ['--flat-playlist', '--playlist-end', '150'] 
+    : ['--no-playlist'];
 
   // 1. Cached successful arguments
   if (cachedCookieArgs.length > 0) {
@@ -191,8 +212,8 @@ export async function fetchVideoInfo(url: string): Promise<VideoMetadata> {
     try {
       const raw = await runYtDlp([
         ...cookieArgs,
-        '-j',
-        '--no-playlist',
+        '-J',
+        ...playlistArgs,
         '--no-warnings',
         url,
       ]);
@@ -206,32 +227,48 @@ export async function fetchVideoInfo(url: string): Promise<VideoMetadata> {
         cachedCookieArgs = cookieArgs;
       }
 
-      console.log(`[ytDlpService] Parsed video data: Title: ${data.title}`);
+      console.log(`[ytDlpService] Parsed data root type: ${data._type}`);
 
-      // Extract relevant formats
-      const formats: VideoFormat[] = (data.formats || [])
-        .filter((f: any) => f.ext !== 'mhtml')
-        .map((f: any) => ({
-          formatId: f.format_id || '',
-          ext: f.ext || '',
-          resolution: f.resolution || (f.height ? `${f.width}x${f.height}` : 'audio only'),
-          qualityLabel: getQualityLabel(f.height || null),
-          filesize: f.filesize || f.filesize_approx || null,
-          vcodec: f.vcodec || 'none',
-          acodec: f.acodec || 'none',
-        }));
+      let entries = [];
+      if (data._type === 'playlist' || data.entries) {
+        entries = data.entries || [];
+      } else {
+        entries = [data]; // single video
+      }
 
-      const result: VideoMetadata = {
-        id: data.id || '',
-        title: data.title || 'Unknown Title',
-        thumbnail: data.thumbnail || '',
-        duration: data.duration || 0,
-        durationFormatted: formatDuration(data.duration || 0),
-        uploader: data.uploader || data.channel || 'Unknown',
-        formats,
-      };
+      const results: VideoMetadata[] = entries
+        .filter((entry: any) => entry && entry.id && entry.title !== '[Deleted video]' && entry.title !== '[Private video]')
+        .map((entry: any) => {
+          // Extract relevant formats
+          const formats: VideoFormat[] = (entry.formats || [])
+            .filter((f: any) => f.ext !== 'mhtml')
+            .map((f: any) => ({
+              formatId: f.format_id || '',
+              ext: f.ext || '',
+              resolution: f.resolution || (f.height ? `${f.width}x${f.height}` : 'audio only'),
+              qualityLabel: getQualityLabel(f.height || null),
+              filesize: f.filesize || f.filesize_approx || null,
+              vcodec: f.vcodec || 'none',
+              acodec: f.acodec || 'none',
+            }));
 
-      return result;
+          return {
+            id: entry.id || '',
+            url: entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url),
+            title: entry.title || 'Unknown Title',
+            thumbnail: entry.thumbnail || entry.thumbnails?.[0]?.url || '',
+            duration: entry.duration || 0,
+            durationFormatted: formatDuration(entry.duration || 0),
+            uploader: entry.uploader || entry.channel || 'Unknown',
+            formats,
+          };
+      });
+
+      if (results.length === 0) {
+        throw new Error("No accessible videos found in the specific URL/Playlist.");
+      }
+
+      return results;
     } catch (err: any) {
       console.warn(`[ytDlpService] Attempt ${i + 1} failed: ${err.message}`);
       lastError = err;
@@ -327,12 +364,18 @@ export function downloadVideo(
     );
   } else {
     // Download video as MP4
-    // Prefer a combined format at the requested quality
-    const qualityHeight = options.quality.replace('p', '');
-    args.push(
-      '-f', `bestvideo[height<=${qualityHeight}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${qualityHeight}][ext=mp4]/best`,
-      '--merge-output-format', 'mp4',
-    );
+    if (options.quality === 'best') {
+      args.push(
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        '--merge-output-format', 'mp4',
+      );
+    } else {
+      const qualityHeight = options.quality.replace('p', '');
+      args.push(
+        '-f', `bestvideo[height<=${qualityHeight}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${qualityHeight}][ext=mp4]/best`,
+        '--merge-output-format', 'mp4',
+      );
+    }
   }
 
   args.push(options.url);
@@ -399,7 +442,10 @@ export function downloadVideo(
       }
     });
 
+    let stderrOut = '';
+
     proc.stderr.on('data', (data: Buffer) => {
+      stderrOut += data.toString();
       console.error(`[ytDlpService] stderr: ${data.toString()}`);
     });
 
@@ -435,7 +481,10 @@ export function downloadVideo(
 
         resolve(resolvedPath);
       } else {
-        reject(new Error(`yt-dlp download failed with exit code ${code}`));
+        const errorMsg = stderrOut.split('\n').find(line => line.includes('ERROR:')) 
+                         || stderrOut.trim().split('\n')[0] 
+                         || 'Unknown error';
+        reject(new Error(`yt-dlp download failed (code ${code}): ${errorMsg.trim()}`));
       }
     });
 

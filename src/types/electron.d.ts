@@ -5,7 +5,7 @@ export interface ElectronAPI {
   /* ── Video info ── */
   fetchVideoInfo: (url: string) => Promise<{
     success: boolean;
-    data?: VideoMetadata;
+    data?: VideoMetadata[];
     error?: string;
   }>;
 
@@ -15,11 +15,19 @@ export interface ElectronAPI {
     taskId?: string;
     error?: string;
   }>;
+  addTasks: (tasks: { url: string; title: string; thumbnail: string; }[]) => Promise<{
+    success: boolean;
+    taskIds?: string[];
+    error?: string;
+  }>;
+  startTask: (taskId: string, outputDir?: string) => Promise<{ success: boolean }>;
+  updateTask: (taskId: string, format: 'mp4'|'mp3', quality: string) => Promise<{ success: boolean }>;
   cancelTask: (taskId: string) => Promise<{ success: boolean }>;
   removeTask: (taskId: string) => Promise<{ success: boolean }>;
   retryTask: (taskId: string) => Promise<{ success: boolean }>;
   getQueue: () => Promise<DownloadTask[]>;
   clearCompleted: () => Promise<{ success: boolean }>;
+  clearAllTasks: () => Promise<{ success: boolean }>;
 
   /* ── Queue event listeners (main → renderer push) ── */
   onQueueUpdate: (callback: (tasks: DownloadTask[]) => void) => () => void;

@@ -3,6 +3,7 @@
 /** Metadata returned from yt-dlp --dump-json */
 export interface VideoMetadata {
   id: string;
+  url: string;
   title: string;
   thumbnail: string;
   duration: number;        // seconds
@@ -54,7 +55,7 @@ export interface DownloadTask {
   quality: string;
   outputDir?: string;
   customFileName?: string;
-  status: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
   progress: DownloadProgress;
   filePath?: string;
   error?: string;
@@ -84,11 +85,15 @@ export const IPC_CHANNELS = {
 
   // Queue management
   ADD_DOWNLOAD: 'add-download',
+  ADD_TASKS: 'add-tasks',
+  START_TASK: 'start-task',
+  UPDATE_TASK: 'update-task',
   CANCEL_TASK: 'cancel-task',
   REMOVE_TASK: 'remove-task',
   RETRY_TASK: 'retry-task',
   GET_QUEUE: 'get-queue',
   CLEAR_COMPLETED: 'clear-completed',
+  CLEAR_ALL_TASKS: 'clear-all-tasks',
 
   // Main → Renderer push events
   QUEUE_UPDATE: 'queue-update',

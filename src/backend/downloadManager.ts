@@ -89,6 +89,85 @@ class DownloadManager extends EventEmitter {
 
   /* ── Public API ─────────────────────────────────────── */
 
+  addTasks(tasks: {
+    url: string;
+    title: string;
+    thumbnail: string;
+  }[]): string[] {
+    const ids: string[] = [];
+    
+    for (const t of tasks) {
+      const id = randomUUID();
+      const task: DownloadTask = {
+        id,
+        url: t.url,
+        title: t.title || 'Untitled',
+        thumbnail: t.thumbnail || '',
+        format: 'mp4',
+        quality: 'best',
+        status: 'pending',
+        progress: { percent: 0, downloaded: '—', total: '—', speed: '—', eta: '—' },
+        addedAt: Date.now(),
+      };
+      
+      this.tasks.set(id, task);
+      ids.push(id);
+      console.log(`[DownloadManager] Pending task added: ${id} — "${task.title}"`);
+    }
+
+    this.emitUpdate();
+    return ids;
+  }
+
+  updateTask(id: string, format: 'mp4' | 'mp3', quality: string): boolean {
+    const task = this.tasks.get(id);
+    if (!task) return false;
+    
+    // Can only update if not downloading/completed
+    if (task.status === 'downloading' || task.status === 'completed') return false;
+
+    task.format = format;
+    task.quality = quality;
+    
+    this.emitUpdate();
+    return true;
+  }
+
+  startTask(id: string, outputDir?: string): boolean {
+    const task = this.tasks.get(id);
+    // Can only start a pending, cancelled, or failed task
+    if (!task || (task.status !== 'pending' && task.status !== 'cancelled' && task.status !== 'failed')) {
+      return false;
+    }
+
+    if (!task.format || !task.quality) {
+       console.error(`[DownloadManager] Cannot start task ${id} without format/quality`);
+       return false;
+    }
+
+    if (outputDir) {
+      task.outputDir = outputDir;
+    }
+
+    if (!task.format || !task.quality) {
+       console.error(`[DownloadManager] Cannot start task ${id} without format/quality`);
+       return false;
+    }
+
+    // Reset progress
+    task.progress = { percent: 0, downloaded: '—', total: '—', speed: '—', eta: '—' };
+    task.error = undefined;
+    task.filePath = undefined;
+    task.status = 'queued';
+    
+    this.queue.push(id);
+    console.log(`[DownloadManager] Task queued for download: ${id} — "${task.title}"`);
+    
+    this.emitUpdate();
+    this.processQueue();
+    return true;
+  }
+
   addTask(opts: {
     url: string;
     title: string;
@@ -126,7 +205,9 @@ class DownloadManager extends EventEmitter {
     const task = this.tasks.get(id);
     if (!task) return false;
 
-    if (task.status === 'queued') {
+    if (task.status === 'pending') {
+      task.status = 'cancelled';
+    } else if (task.status === 'queued') {
       // Remove from pending queue
       this.queue = this.queue.filter(qId => qId !== id);
       task.status = 'cancelled';
@@ -162,6 +243,7 @@ class DownloadManager extends EventEmitter {
     if (task.status === 'queued') {
       this.queue = this.queue.filter(qId => qId !== id);
     }
+    // 'pending' doesn't exist in this.queue, so no need to filter it.
 
     this.tasks.delete(id);
     this.processes.delete(id);
@@ -171,21 +253,7 @@ class DownloadManager extends EventEmitter {
   }
 
   retryTask(id: string): boolean {
-    const task = this.tasks.get(id);
-    if (!task) return false;
-    if (task.status !== 'failed' && task.status !== 'cancelled') return false;
-
-    // Reset task state
-    task.status = 'queued';
-    task.progress = { percent: 0, downloaded: '—', total: '—', speed: '—', eta: '—' };
-    task.error = undefined;
-    task.filePath = undefined;
-
-    this.queue.push(id);
-    console.log(`[DownloadManager] Task retried: ${id}`);
-    this.emitUpdate();
-    this.processQueue();
-    return true;
+    return this.startTask(id);
   }
 
   clearCompleted(): number {
@@ -199,6 +267,24 @@ class DownloadManager extends EventEmitter {
     console.log(`[DownloadManager] Cleared ${removed} completed/failed/cancelled tasks`);
     this.emitUpdate();
     return removed;
+  }
+
+  clearAllTasks(): number {
+    let count = 0;
+    const allIds = Array.from(this.tasks.keys());
+    for (const id of allIds) {
+      if (this.tasks.get(id)?.status === 'downloading') {
+         this.cancelTask(id);
+      }
+      this.tasks.delete(id);
+      count++;
+    }
+    this.queue = [];
+    this.activeIds.clear();
+    this.processes.clear();
+    console.log(`[DownloadManager] Cleared ALL ${count} tasks`);
+    this.emitUpdate();
+    return count;
   }
 
   /* ── Queue processing engine ────────────────────────── */
@@ -255,11 +341,23 @@ class DownloadManager extends EventEmitter {
     console.log(`[DownloadManager] Starting download: ${taskId} — "${task.title}"`);
     console.log(`[DownloadManager] Active: ${this.activeIds.size}/${this.maxConcurrent}, Queued: ${this.queue.length}`);
 
+    // If no output dir, get from settings
+    let finalOutputDir = task.outputDir;
+    if (!finalOutputDir) {
+      const settings = getSettings();
+      // If we didn't pass outputDir (e.g. Download All clicked) or saveMode=default
+      if (settings.defaultFolder) {
+         finalOutputDir = settings.defaultFolder;
+      } else {
+         finalOutputDir = app.getPath('downloads'); // Fallback 
+      }
+    }
+
     const options: DownloadOptions = {
       url: task.url,
-      format: task.format,
+      format: task.format as 'mp4' | 'mp3',
       quality: task.quality,
-      outputDir: task.outputDir,
+      outputDir: finalOutputDir,
       customFileName: task.customFileName,
     };
 

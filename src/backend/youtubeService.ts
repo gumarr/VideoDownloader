@@ -28,7 +28,31 @@ export function attachYoutubeHandlers() {
     }
   });
 
-  /* ── Add download to queue ────────────────────────────── */
+  /* ── Batch add tasks ────────────────────────────────────── */
+  ipcMain.handle(IPC_CHANNELS.ADD_TASKS, async (_event, tasks: { url: string; title: string; thumbnail: string; }[]) => {
+    try {
+      console.log(`[IPC] add-tasks: ${tasks.length} items`);
+      const taskIds = downloadManager.addTasks(tasks);
+      return { success: true, taskIds };
+    } catch (err: any) {
+      console.error(`[IPC] add-tasks error:`, err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  /* ── Start a pending task ─────────────────────────────── */
+  ipcMain.handle(IPC_CHANNELS.START_TASK, async (_event, taskId: string, outputDir?: string) => {
+    const success = downloadManager.startTask(taskId, outputDir);
+    return { success };
+  });
+
+  /* ── Update task options ──────────────────────────────── */
+  ipcMain.handle(IPC_CHANNELS.UPDATE_TASK, async (_event, taskId: string, format: 'mp4'|'mp3', quality: string) => {
+    const success = downloadManager.updateTask(taskId, format, quality);
+    return { success };
+  });
+
+  /* ── Add single download (Legacy/Explicit) ────────────── */
   ipcMain.handle(IPC_CHANNELS.ADD_DOWNLOAD, async (event, options: DownloadOptions & { title?: string; thumbnail?: string }) => {
     try {
       console.log(`[IPC] add-download:`, options);
@@ -118,6 +142,11 @@ export function attachYoutubeHandlers() {
   /* ── Clear completed/failed/cancelled tasks ───────────── */
   ipcMain.handle(IPC_CHANNELS.CLEAR_COMPLETED, async () => {
     downloadManager.clearCompleted();
+    return { success: true };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CLEAR_ALL_TASKS, async () => {
+    downloadManager.clearAllTasks();
     return { success: true };
   });
 

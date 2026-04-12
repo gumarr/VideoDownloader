@@ -24,6 +24,15 @@ contextBridge.exposeInMainWorld('api', {
   addDownload: (options: DownloadOptions & { title?: string; thumbnail?: string }) =>
     ipcRenderer.invoke(IPC_CHANNELS.ADD_DOWNLOAD, options),
 
+  addTasks: (tasks: { url: string; title: string; thumbnail: string; }[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.ADD_TASKS, tasks),
+
+  startTask: (taskId: string, outputDir?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.START_TASK, taskId, outputDir),
+
+  updateTask: (taskId: string, format: 'mp4'|'mp3', quality: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_TASK, taskId, format, quality),
+
   cancelTask: (taskId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CANCEL_TASK, taskId),
 
@@ -38,6 +47,9 @@ contextBridge.exposeInMainWorld('api', {
 
   clearCompleted: () =>
     ipcRenderer.invoke(IPC_CHANNELS.CLEAR_COMPLETED),
+
+  clearAllTasks: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLEAR_ALL_TASKS),
 
   /* ── Queue event listeners (main → renderer push) ───── */
 

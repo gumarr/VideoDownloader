@@ -6,7 +6,7 @@ interface DownloadTask {
   thumbnail: string;
   format: 'mp4' | 'mp3';
   quality: string;
-  status: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
   progress: {
     percent: number;
     downloaded: string;
@@ -21,15 +21,24 @@ interface DownloadTask {
 
 interface DownloadQueueProps {
   tasks: DownloadTask[];
+  onStart: (taskId: string) => void;
+  onUpdateTask: (taskId: string, format: 'mp4'|'mp3', quality: string) => void;
+  onStartAllPending: () => void;
   onCancel: (taskId: string) => void;
   onRemove: (taskId: string) => void;
   onRetry: (taskId: string) => void;
   onOpenFolder: (filePath: string) => void;
   onOpenFile: (filePath: string) => void;
   onClearCompleted: () => void;
+  onClearAllTasks: () => void;
 }
 
 const statusConfig = {
+  pending: {
+    label: 'Ready',
+    dotClass: 'bg-purple-500',
+    textClass: 'text-purple-600 dark:text-purple-400',
+  },
   queued: {
     label: 'Queued',
     dotClass: 'bg-surface-400',
@@ -59,13 +68,18 @@ const statusConfig = {
 
 export default function DownloadQueue({
   tasks,
+  onStart,
+  onUpdateTask,
+  onStartAllPending,
   onCancel,
   onRemove,
   onRetry,
   onOpenFolder,
   onOpenFile,
   onClearCompleted,
+  onClearAllTasks,
 }: DownloadQueueProps) {
+  const pendingTasks = tasks.filter(t => t.status === 'pending');
   const activeTasks = tasks.filter(t => t.status === 'downloading' || t.status === 'queued');
   const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled');
   
@@ -81,25 +95,72 @@ export default function DownloadQueue({
                   d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
           </svg>
           <h2 className="text-sm font-semibold text-surface-700 dark:text-surface-200 uppercase tracking-wider">
-            Downloads
+            Queue
           </h2>
           {/* Badges */}
           <div className="flex items-center gap-1.5">
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
-              {activeTasks.length} active
-            </span>
+            {pendingTasks.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400">
+                {pendingTasks.length} pending
+              </span>
+            )}
+            {activeTasks.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
+                {activeTasks.length} active
+              </span>
+            )}
           </div>
         </div>
-        {completedTasks.length > 0 && (
+        <div className="flex items-center gap-3">
+          {pendingTasks.length > 0 && (
+            <button
+              onClick={onStartAllPending}
+              className="text-xs font-semibold px-2 py-1 rounded bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-400 hover:bg-primary-200 dark:hover:bg-primary-800/60
+                         transition-colors cursor-pointer"
+            >
+              Download All Pending
+            </button>
+          )}
+          {completedTasks.length > 0 && (
+            <button
+              onClick={onClearCompleted}
+              className="text-xs text-surface-400 hover:text-surface-600 dark:hover:text-surface-300
+                         transition-colors cursor-pointer"
+            >
+              Clear finished
+            </button>
+          )}
           <button
-            onClick={onClearCompleted}
-            className="text-xs text-surface-400 hover:text-surface-600 dark:hover:text-surface-300
-                       transition-colors cursor-pointer"
+            onClick={onClearAllTasks}
+            className="text-xs text-red-500 hover:text-red-600 dark:hover:text-red-400
+                       transition-colors cursor-pointer ml-1"
           >
-            Clear finished
+            Clear All
           </button>
-        )}
+        </div>
       </div>
+
+      {/* ── Pending Task List ─────────────────────── */}
+      {pendingTasks.length > 0 && (
+        <div className="space-y-2 mb-4">
+          <h3 className="text-xs font-medium text-surface-500 uppercase tracking-wide">
+            Pending
+          </h3>
+          {pendingTasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              onStart={onStart}
+              onUpdateTask={onUpdateTask}
+              onCancel={onCancel}
+              onRemove={onRemove}
+              onRetry={onRetry}
+              onOpenFolder={onOpenFolder}
+              onOpenFile={onOpenFile}
+            />
+          ))}
+        </div>
+      )}
 
       {/* ── Active Task List ──────────────────────── */}
       {activeTasks.length > 0 && (
@@ -108,6 +169,8 @@ export default function DownloadQueue({
             <TaskCard
               key={task.id}
               task={task}
+              onStart={onStart}
+              onUpdateTask={onUpdateTask}
               onCancel={onCancel}
               onRemove={onRemove}
               onRetry={onRetry}
@@ -128,6 +191,8 @@ export default function DownloadQueue({
             <TaskCard
               key={task.id}
               task={task}
+              onStart={onStart}
+              onUpdateTask={onUpdateTask}
               onCancel={onCancel}
               onRemove={onRemove}
               onRetry={onRetry}
@@ -145,6 +210,8 @@ export default function DownloadQueue({
 
 function TaskCard({
   task,
+  onStart,
+  onUpdateTask,
   onCancel,
   onRemove,
   onRetry,
@@ -152,6 +219,8 @@ function TaskCard({
   onOpenFile,
 }: {
   task: DownloadTask;
+  onStart: (id: string) => void;
+  onUpdateTask: (id: string, format: 'mp4'|'mp3', quality: string) => void;
   onCancel: (id: string) => void;
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
@@ -159,11 +228,15 @@ function TaskCard({
   onOpenFile: (path: string) => void;
 }) {
   const status = statusConfig[task.status];
+  const isPending = task.status === 'pending';
   const isActive = task.status === 'downloading';
+  const canStart = task.status === 'pending';
   const canCancel = task.status === 'queued' || task.status === 'downloading';
   const canRetry = task.status === 'failed' || task.status === 'cancelled';
-  const canRemove = task.status !== 'downloading';
+  const canRemove = task.status !== 'downloading' && task.status !== 'queued';
   const canOpen = task.status === 'completed' && !!task.filePath;
+
+  const handleStart = useCallback(() => onStart(task.id), [task.id, onStart]);
 
   const handleCancel = useCallback(() => onCancel(task.id), [task.id, onCancel]);
   const handleRemove = useCallback(() => onRemove(task.id), [task.id, onRemove]);
@@ -183,7 +256,9 @@ function TaskCard({
           ? 'border-accent-300/50 dark:border-accent-700/30 bg-accent-50/30 dark:bg-accent-900/5'
           : task.status === 'failed'
             ? 'border-red-200 dark:border-red-800/40 bg-red-50/30 dark:bg-red-900/5'
-            : 'border-surface-200 dark:border-surface-700/60 bg-white dark:bg-surface-800/40'
+            : isPending
+              ? 'border-purple-200 dark:border-purple-800/40 bg-purple-50/10 dark:bg-purple-900/5'
+              : 'border-surface-200 dark:border-surface-700/60 bg-white dark:bg-surface-800/40'
       }`}
     >
       <div className="flex items-start gap-3 p-3">
@@ -238,6 +313,16 @@ function TaskCard({
                   </button>
                 </>
               )}
+              {canStart && (
+                <button onClick={handleStart} title="Start Download"
+                  className="w-6 h-6 rounded-md flex items-center justify-center
+                             text-primary-500 hover:text-white hover:bg-primary-500
+                             transition-all cursor-pointer">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                </button>
+              )}
               {canRetry && (
                 <button onClick={handleRetry} title="Retry"
                   className="w-6 h-6 rounded-md flex items-center justify-center
@@ -274,12 +359,42 @@ function TaskCard({
           </div>
 
           {/* Status + meta */}
-          <div className="flex items-center gap-2 mt-1">
-            <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
-            <span className={`text-[11px] font-medium ${status.textClass}`}>{status.label}</span>
-            <span className="text-[10px] text-surface-400">
-              {task.format.toUpperCase()} · {task.quality}
-            </span>
+          <div className="flex items-center gap-2 mt-1 -ml-0.5">
+            <span className={`w-1.5 h-1.5 rounded-full ml-0.5 ${status.dotClass}`} />
+            <span className={`text-[11px] font-medium mr-1 ${status.textClass}`}>{status.label}</span>
+            
+            {isPending ? (
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={task.format}
+                  onChange={(e) => onUpdateTask(task.id, e.target.value as 'mp4'|'mp3', task.quality)}
+                  className="bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700
+                             text-[10px] text-surface-600 dark:text-surface-300 rounded px-1.5 py-0.5 outline-none cursor-pointer"
+                >
+                  <option value="mp4">MP4</option>
+                  <option value="mp3">MP3</option>
+                </select>
+                <select
+                  value={task.quality}
+                  onChange={(e) => onUpdateTask(task.id, task.format, e.target.value)}
+                  disabled={task.format === 'mp3'}
+                  className="bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700
+                             text-[10px] text-surface-600 dark:text-surface-300 rounded px-1.5 py-0.5 outline-none cursor-pointer disabled:opacity-50"
+                >
+                  <option value="best">Best</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="480p">480p</option>
+                  <option value="360p">360p</option>
+                  <option value="240p">240p</option>
+                  <option value="144p">144p</option>
+                </select>
+              </div>
+            ) : (
+              <span className="text-[10px] text-surface-400">
+                {task.format.toUpperCase()} · {task.quality}
+              </span>
+            )}
           </div>
 
           {/* Error message */}

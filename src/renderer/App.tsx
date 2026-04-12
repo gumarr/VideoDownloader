@@ -2,29 +2,20 @@ import { useState, useEffect, useCallback } from 'react';
 import logo from './assets/logo.png';
 import ThemeToggle from './components/ThemeToggle';
 import UrlInput from './components/UrlInput';
-import VideoInfo from './components/VideoInfo';
-import DownloadOptions from './components/DownloadOptions';
 import DownloadQueue from './components/DownloadQueue';
 import SettingsPanel from './components/SettingsPanel';
-import FileNamePreview from './components/FileNamePreview';
 import DebugPanel from './components/DebugPanel';
 import UpdateModal from './components/UpdateModal';
 import AppUpdateModal from './components/AppUpdateModal';
 
 /* ── Types ──────────────────────────────────────────────── */
-interface VideoData {
-  title: string;
-  thumbnail: string;
-  duration: string;
-}
-
 interface DownloadTask {
   id: string;
   title: string;
   thumbnail: string;
   format: 'mp4' | 'mp3';
   quality: string;
-  status: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
   progress: {
     percent: number;
     downloaded: string;
@@ -60,15 +51,7 @@ export default function App() {
   /* URL & fetching */
   const [url, setUrl] = useState('');
   const [isFetching, setIsFetching] = useState(false);
-  const [videoInfo, setVideoInfo] = useState<VideoData | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  /* Options */
-  const [format, setFormat] = useState('mp4');
-  const [quality, setQuality] = useState('1080p');
-
-  /* File name */
-  const [customFileName, setCustomFileName] = useState('');
 
   /* Download queue */
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
@@ -166,7 +149,6 @@ export default function App() {
   const handleFetch = useCallback(async () => {
     if (!url.trim()) return;
     setIsFetching(true);
-    setVideoInfo(null);
     setError(null);
 
     if (!hasElectronAPI) {
@@ -176,15 +158,25 @@ export default function App() {
     }
 
     try {
-      console.log('[App] Fetching video info for:', url.trim());
+      console.log('[App] Fetching playlist or video info for:', url.trim());
       const result = await window.api.fetchVideoInfo(url.trim());
-      if (result.success && result.data) {
-        console.log('[App] Video info received:', result.data.title);
-        setVideoInfo({
-          title: result.data.title,
-          thumbnail: result.data.thumbnail,
-          duration: result.data.durationFormatted,
-        });
+      if (result.success && result.data && result.data.length > 0) {
+        console.log(`[App] Video info received: ${result.data.length} item(s)`);
+        
+        // Directly add all items to the queue in 'pending' state
+        const taskResult = await window.api.addTasks(
+          result.data.map(v => ({
+             url: v.url,
+             title: v.title,
+             thumbnail: v.thumbnail,
+          }))
+        );
+
+        if (!taskResult.success) {
+           setError(taskResult.error || 'Failed to add items to queue');
+        } else {
+           setUrl(''); // Clear input
+        }
       } else {
         const errMsg = result.error || 'Failed to fetch video info';
         console.error('[App] Fetch error:', errMsg);
@@ -197,39 +189,6 @@ export default function App() {
 
     setIsFetching(false);
   }, [url]);
-
-  const handleAddToQueue = useCallback(async () => {
-    if (!hasElectronAPI) {
-      setError('Electron API not available — run this app inside Electron to download videos.');
-      return;
-    }
-
-    try {
-      console.log('[App] Adding to queue:', { url: url.trim(), format, quality, customFileName });
-      const result = await window.api.addDownload({
-        url: url.trim(),
-        format: format as 'mp4' | 'mp3',
-        quality,
-        customFileName: customFileName || undefined,
-        title: videoInfo?.title,
-        thumbnail: videoInfo?.thumbnail,
-      });
-
-      if (!result.success) {
-        console.error('[App] Add to queue failed:', result.error);
-        setError(result.error || 'Failed to add download');
-      } else {
-        console.log('[App] Added to queue, task ID:', result.taskId);
-        // Clear the current video after adding to queue so user can paste another
-        setVideoInfo(null);
-        setUrl('');
-        setCustomFileName('');
-      }
-    } catch (err: any) {
-      console.error('[App] Add to queue exception:', err.message);
-      setError(err.message || 'Queue error');
-    }
-  }, [url, format, quality, customFileName, videoInfo]);
 
   const handleCancelTask = useCallback(async (taskId: string) => {
     if (hasElectronAPI) {
@@ -268,6 +227,36 @@ export default function App() {
       await window.api.clearCompleted();
     }
   }, []);
+
+  const handleClearAllTasks = useCallback(async () => {
+    if (hasElectronAPI) {
+      await window.api.clearAllTasks();
+    }
+  }, []);
+
+  const handleStartTask = useCallback(async (taskId: string) => {
+    if (!hasElectronAPI) return;
+    const settings = await window.api.getSettings();
+    let selectedDir: string | undefined = undefined;
+    if (settings.saveMode === 'ask') {
+      const result = await window.api.selectDirectory();
+      if (!result) return; // user cancelled picking folder
+      selectedDir = result;
+    }
+    await window.api.startTask(taskId, selectedDir);
+  }, []);
+
+  const handleUpdateTask = useCallback((taskId: string, format: 'mp4'|'mp3', quality: string) => {
+    if (hasElectronAPI) window.api.updateTask(taskId, format, quality);
+  }, []);
+
+  const handleStartAllPending = useCallback(async () => {
+    if (!hasElectronAPI) return;
+    const pendingIds = tasks.filter(t => t.status === 'pending').map(t => t.id);
+    for (const id of pendingIds) {
+      await window.api.startTask(id); // Backend will processQueue automatically
+    }
+  }, [tasks]);
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-surface-950 transition-colors duration-300">
@@ -372,44 +361,19 @@ export default function App() {
           </div>
         )}
 
-        {/* Video Info Card */}
-        {videoInfo && (
-          <VideoInfo
-            title={videoInfo.title}
-            thumbnail={videoInfo.thumbnail}
-            duration={videoInfo.duration}
-          />
-        )}
-
-        {/* File Name Preview & Rename */}
-        {videoInfo && (
-          <FileNamePreview
-            videoTitle={videoInfo.title}
-            format={format}
-            onFileNameChange={setCustomFileName}
-          />
-        )}
-
-        {/* Download Options */}
-        {videoInfo && (
-          <DownloadOptions
-            format={format}
-            onFormatChange={setFormat}
-            quality={quality}
-            onQualityChange={setQuality}
-            onDownload={handleAddToQueue}
-          />
-        )}
-
         {/* ─── Download Queue ─────────────────── */}
         <DownloadQueue
           tasks={tasks}
+          onStart={handleStartTask}
+          onUpdateTask={handleUpdateTask}
+          onStartAllPending={handleStartAllPending}
           onCancel={handleCancelTask}
           onRemove={handleRemoveTask}
           onRetry={handleRetryTask}
           onOpenFolder={handleOpenFolder}
           onOpenFile={handleOpenFile}
           onClearCompleted={handleClearCompleted}
+          onClearAllTasks={handleClearAllTasks}
         />
       </main>
 

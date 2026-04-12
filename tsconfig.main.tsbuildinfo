@@ -1,0 +1,1 @@
+{"root":["./src/main/main.ts","./src/preload/preload.ts","./src/backend/appupdater.ts","./src/backend/downloadmanager.ts","./src/backend/settingsservice.ts","./src/backend/youtubeservice.ts","./src/backend/ytdlpservice.ts","./src/backend/ytdlpupdater.ts","./src/types/electron.d.ts","./src/types/ipc.ts"],"version":"6.0.2"}

@@ -89,14 +89,16 @@ export default function DebugPanel({ isOpen, onClose }: { isOpen: boolean; onClo
       const result = await window.api.fetchVideoInfo(fetchUrl.trim());
       setFetchResult(result);
 
-      if (result.success && result.data) {
-        addLog('success', `✓ Title: "${result.data.title}"`);
-        addLog('success', `✓ Duration: ${result.data.durationFormatted}`);
-        addLog('success', `✓ Thumbnail: ${result.data.thumbnail ? 'present' : 'missing'}`);
-        addLog('success', `✓ Formats: ${result.data.formats?.length || 0} available`);
+      if (result.success && result.data && result.data.length > 0) {
+        const item = result.data[0];
+        addLog('success', `✓ Parsed ${result.data.length} item(s)`);
+        addLog('success', `✓ Title (1st): "${item.title}"`);
+        addLog('success', `✓ Duration: ${item.durationFormatted}`);
+        addLog('success', `✓ Thumbnail: ${item.thumbnail ? 'present' : 'missing'}`);
+        addLog('success', `✓ Formats: ${item.formats?.length || 0} available`);
         console.log('[DebugPanel] fetchVideoInfo result:', result.data);
       } else {
-        addLog('error', `✗ Error: ${result.error || 'Unknown error'}`);
+        addLog('error', `✗ Error: ${result.error || 'No items found'}`);
       }
     } catch (err: any) {
       addLog('error', `✗ Exception: ${err.message}`);
