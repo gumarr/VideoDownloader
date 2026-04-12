@@ -82,6 +82,15 @@ export default function App() {
   /* Updater Modal */
   const [updateData, setUpdateData] = useState<{ currentVersion: string; latestVersion: string } | null>(null);
 
+  /* App version */
+  const [appVersion, setAppVersion] = useState<string>('');
+
+  /* Fetch app version on mount */
+  useEffect(() => {
+    if (!hasElectronAPI) return;
+    window.api.getAppVersion().then(v => setAppVersion(v));
+  }, []);
+
   /* Check for updates on startup */
   useEffect(() => {
     if (!hasElectronAPI) return;
@@ -387,7 +396,15 @@ export default function App() {
       {/* ─── Footer ─────────────────────────── */}
       <footer className="max-w-2xl mx-auto px-5 pb-6">
         <p className="text-center text-xs text-surface-400 dark:text-surface-600">
-          {hasElectronAPI ? 'Running in Electron' : 'Running in browser'} · Built with Electron · React · Vite
+          {hasElectronAPI ? 'Running in Electron' : 'Running in browser'}
+          {appVersion && (
+            <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold
+                             bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400
+                             border border-primary-200 dark:border-primary-800">
+              v{appVersion}
+            </span>
+          )}
+          {' · Built with Electron · React · Vite'}
         </p>
       </footer>
 

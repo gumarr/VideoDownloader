@@ -60,6 +60,10 @@ app.whenReady().then(() => {
     installAppUpdate();
   });
 
+  ipcMain.handle(IPC_CHANNELS.GET_APP_VERSION, () => {
+    return app.getVersion();
+  });
+
   createWindow();
 
   app.on('activate', () => {

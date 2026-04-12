@@ -115,4 +115,7 @@ export const IPC_CHANNELS = {
   APP_UPDATE_INSTALL: 'app-update-install',
   // Main → Renderer push events
   APP_UPDATE_STATUS: 'app-update-status',
+
+  // App info
+  GET_APP_VERSION: 'get-app-version',
 } as const;

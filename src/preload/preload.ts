@@ -139,6 +139,11 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_STATUS, handler);
     };
   },
+
+  /* ── App Info ───────────────────────────────────────── */
+
+  getAppVersion: (): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_APP_VERSION),
 });
 
 console.log('[preload] window.api exposed successfully via contextBridge');

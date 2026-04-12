@@ -69,6 +69,9 @@ export interface ElectronAPI {
     message?: string;
     releaseNotes?: string;
   }) => void) => () => void;
+
+  /* ── App Info ── */
+  getAppVersion: () => Promise<string>;
 }
 
 declare global {

@@ -16,6 +16,13 @@ const hasElectronAPI = typeof window !== 'undefined' && !!window.api;
 export default function AppUpdateModal() {
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState('');
+
+  // Fetch app version on mount
+  useEffect(() => {
+    if (!hasElectronAPI) return;
+    window.api.getAppVersion().then(v => setCurrentVersion(v));
+  }, []);
 
   // Listen for update status events from main process
   useEffect(() => {
@@ -89,7 +96,7 @@ export default function AppUpdateModal() {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-surface-500">Current Version:</span>
                   <span className="text-sm font-medium text-surface-700 dark:text-surface-300 font-mono">
-                    Current
+                    {currentVersion || '—'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">

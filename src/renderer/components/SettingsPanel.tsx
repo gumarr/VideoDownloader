@@ -23,6 +23,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [appVersion, setAppVersion] = useState('');
 
   /* Load settings on open */
   useEffect(() => {
@@ -30,6 +31,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       window.api.getSettings().then((s) => {
         setSettings(s);
       });
+      window.api.getAppVersion().then(v => setAppVersion(v));
     }
   }, [isOpen]);
 
@@ -367,6 +369,32 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             </section>
           )}
         </div>
+
+          {/* ── About ──────────────────────────────── */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-surface-700 dark:text-surface-200 uppercase tracking-wider">
+              About
+            </h3>
+            <div className="p-4 rounded-xl bg-gradient-to-br from-surface-50 to-surface-100
+                            dark:from-surface-800/50 dark:to-surface-800/30
+                            border border-surface-200 dark:border-surface-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-surface-900 dark:text-surface-50">Video Downloader</p>
+                  <p className="text-[11px] text-surface-500 dark:text-surface-400 mt-0.5">
+                    Built with Electron · React · Vite
+                  </p>
+                </div>
+                {appVersion && (
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold
+                                   bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400
+                                   border border-primary-200 dark:border-primary-800">
+                    v{appVersion}
+                  </span>
+                )}
+              </div>
+            </div>
+          </section>
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-surface-200 dark:border-surface-800 space-y-2">
