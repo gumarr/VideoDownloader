@@ -1,7 +1,9 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { attachYoutubeHandlers } from '../backend/youtubeService';
 import { loadSettings } from '../backend/settingsService';
+import { initAppUpdater, checkForAppUpdate, downloadAppUpdate, installAppUpdate } from '../backend/appUpdater';
+import { IPC_CHANNELS } from '../types/ipc';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -25,6 +27,13 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  // Check for app updates after window is ready (production only)
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!isDev) {
+      checkForAppUpdate();
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -34,6 +43,22 @@ app.whenReady().then(() => {
 
   // Register all IPC handlers (including settings handlers)
   attachYoutubeHandlers();
+
+  // Initialize app auto-updater
+  initAppUpdater();
+
+  // Register app-update IPC handlers
+  ipcMain.handle(IPC_CHANNELS.APP_UPDATE_CHECK, () => {
+    checkForAppUpdate();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.APP_UPDATE_DOWNLOAD, () => {
+    downloadAppUpdate();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.APP_UPDATE_INSTALL, () => {
+    installAppUpdate();
+  });
 
   createWindow();
 

@@ -9,6 +9,7 @@ import SettingsPanel from './components/SettingsPanel';
 import FileNamePreview from './components/FileNamePreview';
 import DebugPanel from './components/DebugPanel';
 import UpdateModal from './components/UpdateModal';
+import AppUpdateModal from './components/AppUpdateModal';
 
 /* ── Types ──────────────────────────────────────────────── */
 interface VideoData {
@@ -428,6 +429,9 @@ export default function App() {
           onRestart={() => window.api.restartApp()}
         />
       )}
+
+      {/* ─── App Update Modal (electron-updater) ── */}
+      <AppUpdateModal />
     </div>
   );
 }

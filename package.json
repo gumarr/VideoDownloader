@@ -2,7 +2,7 @@
   "name": "videodownloader",
   "productName": "Video Downloader",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.1",
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "tsc -p tsconfig.main.json && concurrently -k \"cross-env NODE_ENV=development vite\" \"wait-on http://127.0.0.1:5173 && cross-env NODE_ENV=development electron .\"",
@@ -38,9 +38,17 @@
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico",
       "runAfterFinish": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "gumarr",
+        "repo": "VideoDownloader"
+      }
+    ]
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },

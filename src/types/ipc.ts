@@ -103,9 +103,16 @@ export const IPC_CHANNELS = {
   DOWNLOAD_PROGRESS: 'download-progress',
   CANCEL_DOWNLOAD: 'cancel-download',
 
-  // Updater
+  // yt-dlp binary updater
   CHECK_YT_DLP_UPDATE: 'check-yt-dlp-update',
   INSTALL_YT_DLP_UPDATE: 'install-yt-dlp-update',
   RESTART_APP: 'restart-app',
   SKIP_UPDATE: 'skip-update',
+
+  // App auto-update (electron-updater)
+  APP_UPDATE_CHECK: 'app-update-check',
+  APP_UPDATE_DOWNLOAD: 'app-update-download',
+  APP_UPDATE_INSTALL: 'app-update-install',
+  // Main → Renderer push events
+  APP_UPDATE_STATUS: 'app-update-status',
 } as const;

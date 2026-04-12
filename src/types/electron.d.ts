@@ -54,6 +54,21 @@ export interface ElectronAPI {
   installUpdate: (onProgress: (percent: number) => void) => Promise<{ success: boolean; error?: string }>;
   skipUpdate: (version: string) => Promise<{ success: boolean }>;
   restartApp: () => void;
+
+  /* ── App auto-update (electron-updater) ── */
+  appUpdateCheck: () => Promise<void>;
+  appUpdateDownload: () => Promise<void>;
+  appUpdateInstall: () => Promise<void>;
+  onAppUpdateStatus: (callback: (data: {
+    status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+    version?: string;
+    percent?: number;
+    bytesPerSecond?: number;
+    transferred?: number;
+    total?: number;
+    message?: string;
+    releaseNotes?: string;
+  }) => void) => () => void;
 }
 
 declare global {

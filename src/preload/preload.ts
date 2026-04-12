@@ -120,6 +120,25 @@ contextBridge.exposeInMainWorld('api', {
 
   restartApp: () =>
     ipcRenderer.invoke(IPC_CHANNELS.RESTART_APP),
+
+  /* ── App auto-update (electron-updater) ──────────────── */
+
+  appUpdateCheck: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.APP_UPDATE_CHECK),
+
+  appUpdateDownload: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.APP_UPDATE_DOWNLOAD),
+
+  appUpdateInstall: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.APP_UPDATE_INSTALL),
+
+  onAppUpdateStatus: (callback: (data: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_STATUS, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_STATUS, handler);
+    };
+  },
 });
 
 console.log('[preload] window.api exposed successfully via contextBridge');
