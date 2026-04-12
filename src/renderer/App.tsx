@@ -333,17 +333,37 @@ export default function App() {
         {error && (
           <div className="animate-fade-in-up rounded-xl px-4 py-3 bg-red-50 dark:bg-red-900/20 
                           border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm
-                          flex items-start gap-3">
+                          flex items-start gap-3 shadow-sm shadow-red-500/5">
             <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round"
                     d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
             <div className="flex-1 min-w-0">
-              <span className="font-medium">Error:</span> {error}
+              <span className="font-semibold mr-1">Error:</span>
+              <span className="opacity-90">{error}</span>
+              <div className="flex gap-2 mt-2.5">
+                <button 
+                  onClick={handleFetch} 
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/60 transition-colors cursor-pointer"
+                >
+                  Try Again
+                </button>
+                <button 
+                  onClick={() => { setError(null); setIsSettingsOpen(true); }} 
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/60 transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Authentication Settings
+                </button>
+              </div>
             </div>
             <button
               onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-600 transition-colors cursor-pointer flex-shrink-0"
+              className="mt-0.5 text-red-400 hover:text-red-700 dark:hover:text-red-200 transition-colors cursor-pointer flex-shrink-0 p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md"
+              title="Dismiss"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

@@ -72,6 +72,9 @@ export interface AppSettings {
   lastUpdateCheckTimestamp: number;   // when did we last check
   skippedUpdateVersion: string;       // version the user skipped
   updateCheckInterval: number;        // hours (default 24)
+  cookieSource: 'none' | 'auto' | 'chrome' | 'edge' | 'firefox' | 'file';
+  cookieProfile: string;              // e.g. "Default", "Profile 1"
+  cookieFilePath: string;             // path to cookies.txt manually imported
 }
 
 /** IPC channel names — single source of truth */
@@ -97,6 +100,7 @@ export const IPC_CHANNELS = {
   SHOW_SAVE_DIALOG: 'show-save-dialog',
   OPEN_FOLDER: 'open-folder',
   OPEN_FILE: 'open-file',
+  SELECT_COOKIE_FILE: 'select-cookie-file',
 
   // Legacy (kept for backward compat, will map to queue internally)
   DOWNLOAD_VIDEO: 'download-video',

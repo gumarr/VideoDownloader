@@ -15,6 +15,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   lastUpdateCheckTimestamp: 0,
   skippedUpdateVersion: '',
   updateCheckInterval: 24,
+  cookieSource: 'auto',
+  cookieProfile: 'Default',
+  cookieFilePath: '',
 };
 
 /* ── Settings file path ───────────────────────────────── */

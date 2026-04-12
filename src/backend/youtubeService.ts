@@ -138,6 +138,19 @@ export function attachYoutubeHandlers() {
     return getSettings();
   });
 
+  /* ── Select cookie file ───────────────────────────────── */
+  ipcMain.handle(IPC_CHANNELS.SELECT_COOKIE_FILE, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Text Files', extensions: ['txt'] }, { name: 'All Files', extensions: ['*'] }],
+      title: 'Select cookies.txt File',
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
+
   /* ── Save settings ────────────────────────────────────── */
   ipcMain.handle(IPC_CHANNELS.SAVE_SETTINGS, async (_event, settings: AppSettings) => {
     try {

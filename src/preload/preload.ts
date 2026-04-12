@@ -101,6 +101,9 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (settings: AppSettings): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_SETTINGS, settings),
 
+  selectCookieFile: (): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SELECT_COOKIE_FILE),
+
   /* ── Updater ─────────────────────────────────────────── */
 
   checkForUpdates: (force: boolean = false) =>

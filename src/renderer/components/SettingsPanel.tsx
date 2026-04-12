@@ -20,6 +20,9 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     lastUpdateCheckTimestamp: 0,
     skippedUpdateVersion: '',
     updateCheckInterval: 24,
+    cookieSource: 'auto',
+    cookieProfile: 'Default',
+    cookieFilePath: '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
@@ -263,6 +266,83 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   </button>
                 ))}
               </div>
+            </div>
+          </section>
+
+          {/* ── YouTube Authentication (Cookies) ──────── */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-surface-700 dark:text-surface-200 uppercase tracking-wider">
+              YouTube Authentication (Cookies)
+            </h3>
+            
+            <div className="space-y-3 p-4 rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/20">
+              <div>
+                <label className="block text-xs font-medium text-surface-500 dark:text-surface-400 mb-1.5">
+                  Cookie Source
+                </label>
+                <select
+                  value={settings.cookieSource}
+                  onChange={(e) => setSettings(s => ({ ...s, cookieSource: e.target.value as any }))}
+                  className="w-full px-3 py-2 rounded-lg bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                >
+                  <option value="auto">Auto (Smart Fallback)</option>
+                  <option value="none">None (Public Videos Only)</option>
+                  <option value="chrome">Google Chrome</option>
+                  <option value="edge">Microsoft Edge</option>
+                  <option value="firefox">Mozilla Firefox</option>
+                  <option value="file">Custom cookies.txt File</option>
+                </select>
+                <p className="text-[11px] text-surface-500 mt-1.5 leading-relaxed">
+                  Auto will try to dynamically find a working browser if a video restricts access to prevent bot detection.
+                </p>
+              </div>
+
+              {['chrome', 'edge', 'firefox'].includes(settings.cookieSource) && (
+                <div className="animate-fade-in-up">
+                  <label className="block text-xs font-medium text-surface-500 dark:text-surface-400 mb-1.5">
+                    Browser Profile
+                  </label>
+                  <select
+                    value={settings.cookieProfile}
+                    onChange={(e) => setSettings(s => ({ ...s, cookieProfile: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                  >
+                    <option value="Default">Default</option>
+                    <option value="Profile 1">Profile 1</option>
+                    <option value="Profile 2">Profile 2</option>
+                    <option value="Profile 3">Profile 3</option>
+                  </select>
+                </div>
+              )}
+
+              {settings.cookieSource === 'file' && (
+                <div className="space-y-1.5 animate-fade-in-up">
+                  <label className="block text-xs font-medium text-surface-500 dark:text-surface-400">
+                    Cookie File Path
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={settings.cookieFilePath || 'No file selected'}
+                      className="flex-1 px-3 py-2 rounded-lg bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 text-xs font-mono text-surface-600 dark:text-surface-300 truncate outline-none cursor-default"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const hasElectronAPI = typeof window !== 'undefined' && !!window.api;
+                        if (hasElectronAPI) {
+                           const path = await window.api.selectCookieFile();
+                           if (path) setSettings(s => ({ ...s, cookieFilePath: path }));
+                        }
+                      }}
+                      className="px-3 py-2 rounded-lg bg-surface-200 dark:bg-surface-700 hover:bg-surface-300 dark:hover:bg-surface-600 text-surface-700 dark:text-surface-300 text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      Browse
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 

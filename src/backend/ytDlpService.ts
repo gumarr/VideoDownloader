@@ -8,6 +8,10 @@ import {
   DownloadOptions,
   DownloadProgress,
 } from '../types/ipc';
+import { getSettings } from './settingsService';
+
+/* ── Cached Cookie Configuration ──────────────────────── */
+let cachedCookieArgs: string[] = [];
 
 
 /* ── Binary path resolution ───────────────────────────── */
@@ -134,56 +138,142 @@ function runYtDlp(args: string[]): Promise<string> {
   });
 }
 
-/* ── PUBLIC: Fetch video metadata ─────────────────────── */
-
 export async function fetchVideoInfo(url: string): Promise<VideoMetadata> {
   console.log(`[ytDlpService] fetchVideoInfo started for URL: ${url}`);
 
-  // yt-dlp -j (--dump-json) returns a single JSON object with all metadata
-  const raw = await runYtDlp([
-    '-j',
-    '--no-playlist',
-    '--no-warnings',
-    url,
-  ]);
+  const settings = getSettings();
+  let candidateArgs: string[][] = [];
 
-  console.log(`[ytDlpService] Raw JSON received, parsing...`);
-  const data = JSON.parse(raw);
+  // 1. Cached successful arguments
+  if (cachedCookieArgs.length > 0) {
+    candidateArgs.push(cachedCookieArgs);
+  }
 
-  console.log(`[ytDlpService] Parsed video data:`);
-  console.log(`[ytDlpService]   Title: ${data.title}`);
-  console.log(`[ytDlpService]   Thumbnail: ${data.thumbnail}`);
-  console.log(`[ytDlpService]   Duration: ${data.duration}s`);
-  console.log(`[ytDlpService]   Uploader: ${data.uploader || data.channel}`);
-  console.log(`[ytDlpService]   Total raw formats: ${(data.formats || []).length}`);
+  // 2. User-selected option
+  if (settings.cookieSource !== 'none' && settings.cookieSource !== 'auto') {
+    if (settings.cookieSource === 'file' && settings.cookieFilePath) {
+      candidateArgs.push(['--cookies', settings.cookieFilePath]);
+    } else {
+      const profileStr = settings.cookieProfile ? `profile=${settings.cookieProfile}` : '';
+      candidateArgs.push(['--cookies-from-browser', profileStr ? `${settings.cookieSource}:${profileStr}` : settings.cookieSource]);
+    }
+  }
 
-  // Extract relevant formats (skip storyboard/mhtml)
-  const formats: VideoFormat[] = (data.formats || [])
-    .filter((f: any) => f.ext !== 'mhtml')
-    .map((f: any) => ({
-      formatId: f.format_id || '',
-      ext: f.ext || '',
-      resolution: f.resolution || (f.height ? `${f.width}x${f.height}` : 'audio only'),
-      qualityLabel: getQualityLabel(f.height || null),
-      filesize: f.filesize || f.filesize_approx || null,
-      vcodec: f.vcodec || 'none',
-      acodec: f.acodec || 'none',
-    }));
+  // 3. Fallbacks
+  const fallbacks = [
+    [], // Baseline (no cookies)
+    ['--cookies-from-browser', 'chrome:profile=Default'],
+    ['--cookies-from-browser', 'chrome:profile=Profile 1'],
+    ['--cookies-from-browser', 'chrome:profile=Profile 2'],
+    ['--cookies-from-browser', 'edge:profile=Default'],
+    ['--cookies-from-browser', 'firefox']
+  ];
+  candidateArgs.push(...fallbacks);
 
-  console.log(`[ytDlpService] Filtered formats: ${formats.length}`);
+  // Remove duplicate argument sets
+  const uniqueCandidates: string[][] = [];
+  const seenStr = new Set<string>();
+  for (const args of candidateArgs) {
+    const key = args.join('|');
+    if (!seenStr.has(key)) {
+      seenStr.add(key);
+      uniqueCandidates.push(args);
+    }
+  }
 
-  const result: VideoMetadata = {
-    id: data.id || '',
-    title: data.title || 'Unknown Title',
-    thumbnail: data.thumbnail || '',
-    duration: data.duration || 0,
-    durationFormatted: formatDuration(data.duration || 0),
-    uploader: data.uploader || data.channel || 'Unknown',
-    formats,
-  };
+  let lastError: any = null;
 
-  console.log(`[ytDlpService] fetchVideoInfo complete — returning metadata for "${result.title}"`);
-  return result;
+  for (let i = 0; i < uniqueCandidates.length; i++) {
+    const cookieArgs = uniqueCandidates[i];
+    const logLabel = cookieArgs.length ? cookieArgs.join(' ') : 'No cookies';
+    console.log(`[ytDlpService] Info attempt ${i + 1}/${uniqueCandidates.length} using args: [${logLabel}]`);
+
+    try {
+      const raw = await runYtDlp([
+        ...cookieArgs,
+        '-j',
+        '--no-playlist',
+        '--no-warnings',
+        url,
+      ]);
+
+      console.log(`[ytDlpService] Raw JSON received, parsing...`);
+      const data = JSON.parse(raw);
+
+      // We succeeded! Cache this cookie config so we don't repeat the loop
+      if (cookieArgs.join('|') !== cachedCookieArgs.join('|')) {
+        console.log(`[ytDlpService] Caching successful cookie args for future use.`);
+        cachedCookieArgs = cookieArgs;
+      }
+
+      console.log(`[ytDlpService] Parsed video data: Title: ${data.title}`);
+
+      // Extract relevant formats
+      const formats: VideoFormat[] = (data.formats || [])
+        .filter((f: any) => f.ext !== 'mhtml')
+        .map((f: any) => ({
+          formatId: f.format_id || '',
+          ext: f.ext || '',
+          resolution: f.resolution || (f.height ? `${f.width}x${f.height}` : 'audio only'),
+          qualityLabel: getQualityLabel(f.height || null),
+          filesize: f.filesize || f.filesize_approx || null,
+          vcodec: f.vcodec || 'none',
+          acodec: f.acodec || 'none',
+        }));
+
+      const result: VideoMetadata = {
+        id: data.id || '',
+        title: data.title || 'Unknown Title',
+        thumbnail: data.thumbnail || '',
+        duration: data.duration || 0,
+        durationFormatted: formatDuration(data.duration || 0),
+        uploader: data.uploader || data.channel || 'Unknown',
+        formats,
+      };
+
+      return result;
+    } catch (err: any) {
+      console.warn(`[ytDlpService] Attempt ${i + 1} failed: ${err.message}`);
+      lastError = err;
+
+      // Detect if we should retry
+      const msg = err.message.toLowerCase();
+      const isRecoverable =
+        msg.includes('bot') ||
+        msg.includes('sign in') ||
+        msg.includes('locked') ||
+        msg.includes('403') ||
+        msg.includes('429') ||
+        msg.includes('http error') ||
+        msg.includes('unable to extract') ||
+        msg.includes('permission denied');
+
+      if (!isRecoverable) {
+        console.warn(`[ytDlpService] Non-recoverable error pattern detected, breaking retry loop.`);
+        break;
+      }
+    }
+  }
+
+  // If we reach here, all fallbacks failed
+  const errMsg = lastError?.message || 'Unknown processing error';
+  let friendlyMsg = 'An unexpected error occurred while fetching video info.';
+  const lowerMsg = errMsg.toLowerCase();
+
+  // Try to parse the error message to give helpful UX
+  if (lowerMsg.includes('locked')) {
+    friendlyMsg = 'Your browser database is locked. Please close your browser and try again.';
+  } else if (lowerMsg.includes('bot') || lowerMsg.includes('sign in') || lowerMsg.includes('403') || lowerMsg.includes('429')) {
+    friendlyMsg = 'YouTube bot detection triggered or login required. Please close your browser and try again. Make sure you are logged into YouTube.';
+  } else if (lowerMsg.includes('unable to extract')) {
+    friendlyMsg = 'YouTube structure changed or video is restricted. Check your cookie settings.';
+  } else {
+    friendlyMsg = `Failed with: ${errMsg.split('\\n')[0].substring(0, 100)}...`;
+  }
+
+  // Clear cache if we failed completely, so next URL tries afresh
+  cachedCookieArgs = [];
+  throw new Error(friendlyMsg);
 }
 
 /* ── PUBLIC: Download video/audio ─────────────────────── */
@@ -221,6 +311,7 @@ export function downloadVideo(
   // Build yt-dlp arguments
   const args: string[] = [
     '--ffmpeg-location', path.dirname(ffmpegPath),
+    ...cachedCookieArgs, // Apply the successful cookie args found during fetchVideoInfo
     '--no-playlist',
     '--no-warnings',
     '--newline',       // ensures progress lines are newline-separated

@@ -43,6 +43,7 @@ export interface ElectronAPI {
   /* ── Settings ── */
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: AppSettings) => Promise<{ success: boolean }>;
+  selectCookieFile: () => Promise<string | null>;
 
   /* ── Updater ── */
   checkForUpdates: (force?: boolean) => Promise<{
