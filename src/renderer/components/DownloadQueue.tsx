@@ -2,6 +2,8 @@ import { useCallback } from 'react';
 
 interface DownloadTask {
   id: string;
+  url?: string;
+  platform: 'youtube' | 'soundcloud';
   title: string;
   thumbnail: string;
   format: 'mp4' | 'mp3';
@@ -282,15 +284,25 @@ function TaskCard({
           </div>
         )}
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="text-sm font-medium text-surface-900 dark:text-surface-100 line-clamp-1 leading-snug">
-              {task.title}
-            </h3>
+            <div className="flex flex-col gap-1 items-start min-w-0 flex-1">
+              {task.platform === 'soundcloud' ? (
+                <span className="px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold uppercase tracking-wider bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+                  SoundCloud
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold uppercase tracking-wider bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                  YouTube
+                </span>
+              )}
+              <h3 className="text-sm font-medium text-surface-900 dark:text-surface-100 line-clamp-1 leading-snug break-all">
+                {task.title}
+              </h3>
+            </div>
 
             {/* Action buttons */}
-            <div className="flex items-center gap-1 flex-shrink-0">
+            <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
               {canOpen && (
                 <>
                   <button onClick={handleOpenFile} title="Open file"
@@ -365,30 +377,38 @@ function TaskCard({
             
             {isPending ? (
               <div className="flex items-center gap-1.5">
-                <select
-                  value={task.format}
-                  onChange={(e) => onUpdateTask(task.id, e.target.value as 'mp4'|'mp3', task.quality)}
-                  className="bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700
-                             text-[10px] text-surface-600 dark:text-surface-300 rounded px-1.5 py-0.5 outline-none cursor-pointer"
-                >
-                  <option value="mp4">MP4</option>
-                  <option value="mp3">MP3</option>
-                </select>
-                <select
-                  value={task.quality}
-                  onChange={(e) => onUpdateTask(task.id, task.format, e.target.value)}
-                  disabled={task.format === 'mp3'}
-                  className="bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700
-                             text-[10px] text-surface-600 dark:text-surface-300 rounded px-1.5 py-0.5 outline-none cursor-pointer disabled:opacity-50"
-                >
-                  <option value="best">Best</option>
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                  <option value="480p">480p</option>
-                  <option value="360p">360p</option>
-                  <option value="240p">240p</option>
-                  <option value="144p">144p</option>
-                </select>
+                {task.platform === 'soundcloud' ? (
+                  <span className="text-[10px] text-surface-400 font-medium bg-surface-100 dark:bg-surface-800 px-2 py-0.5 rounded border border-surface-200 dark:border-surface-700">
+                    MP3 · Best Quality
+                  </span>
+                ) : (
+                  <>
+                    <select
+                      value={task.format}
+                      onChange={(e) => onUpdateTask(task.id, e.target.value as 'mp4'|'mp3', task.quality)}
+                      className="bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700
+                                 text-[10px] text-surface-600 dark:text-surface-300 rounded px-1.5 py-0.5 outline-none cursor-pointer"
+                    >
+                      <option value="mp4">MP4</option>
+                      <option value="mp3">MP3</option>
+                    </select>
+                    <select
+                      value={task.quality}
+                      onChange={(e) => onUpdateTask(task.id, task.format, e.target.value)}
+                      disabled={task.format === 'mp3'}
+                      className="bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700
+                                 text-[10px] text-surface-600 dark:text-surface-300 rounded px-1.5 py-0.5 outline-none cursor-pointer disabled:opacity-50"
+                    >
+                      <option value="best">Best</option>
+                      <option value="1080p">1080p</option>
+                      <option value="720p">720p</option>
+                      <option value="480p">480p</option>
+                      <option value="360p">360p</option>
+                      <option value="240p">240p</option>
+                      <option value="144p">144p</option>
+                    </select>
+                  </>
+                )}
               </div>
             ) : (
               <span className="text-[10px] text-surface-400">

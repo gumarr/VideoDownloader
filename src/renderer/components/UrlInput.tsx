@@ -1,12 +1,13 @@
 interface UrlInputProps {
   url: string;
+  placeholder?: string;
   onUrlChange: (url: string) => void;
   onPaste: () => void;
   onFetch: () => void;
   isFetching: boolean;
 }
 
-export default function UrlInput({ url, onUrlChange, onPaste, onFetch, isFetching }: UrlInputProps) {
+export default function UrlInput({ url, placeholder, onUrlChange, onPaste, onFetch, isFetching }: UrlInputProps) {
   return (
     <div className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
       <label htmlFor="url-input" className="block text-sm font-medium text-surface-700 dark:text-surface-200 mb-2">
@@ -24,7 +25,7 @@ export default function UrlInput({ url, onUrlChange, onPaste, onFetch, isFetchin
             type="text"
             value={url}
             onChange={(e) => onUrlChange(e.target.value)}
-            placeholder="https://youtube.com/watch?v=..."
+            placeholder={placeholder || 'https://youtube.com/watch?v=...'}
             className="w-full pl-10 pr-4 py-3 rounded-xl border border-surface-200 dark:border-surface-700
                        bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-50
                        placeholder:text-surface-400 dark:placeholder:text-surface-500

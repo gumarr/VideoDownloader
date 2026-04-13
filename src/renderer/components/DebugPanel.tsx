@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { SupportedPlatform } from '../../types/ipc';
 
 interface ProgressEntry {
   timestamp: string;
@@ -26,6 +27,7 @@ export default function DebugPanel({ isOpen, onClose }: { isOpen: boolean; onClo
 
   /* ── Download test state ──────────────────────── */
   const [dlUrl, setDlUrl] = useState('');
+  const [dlPlatform, setDlPlatform] = useState<SupportedPlatform>('youtube');
   const [dlFormat, setDlFormat] = useState<'mp4' | 'mp3'>('mp4');
   const [dlQuality, setDlQuality] = useState('720p');
   const [isDlTesting, setIsDlTesting] = useState(false);
@@ -119,6 +121,7 @@ export default function DebugPanel({ isOpen, onClose }: { isOpen: boolean; onClo
     try {
       const result = await window.api.downloadVideo({
         url: dlUrl.trim(),
+        platform: dlPlatform,
         format: dlFormat,
         quality: dlQuality,
       });
@@ -248,6 +251,17 @@ export default function DebugPanel({ isOpen, onClose }: { isOpen: boolean; onClo
                              bg-white dark:bg-surface-800 text-sm text-surface-900 dark:text-surface-50
                              placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-400"
                 />
+                <select
+                  id="debug-dl-platform"
+                  value={dlPlatform}
+                  onChange={(e) => setDlPlatform(e.target.value as SupportedPlatform)}
+                  className="px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700
+                             bg-white dark:bg-surface-800 text-sm text-surface-900 dark:text-surface-50
+                             focus:outline-none focus:ring-2 focus:ring-primary-400 cursor-pointer"
+                >
+                  <option value="youtube">YouTube</option>
+                  <option value="soundcloud">SoundCloud</option>
+                </select>
                 <select
                   id="debug-dl-format"
                   value={dlFormat}

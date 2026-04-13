@@ -1,7 +1,7 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { IPC_CHANNELS, DownloadOptions, AppSettings, DownloadTask, DownloadTaskProgress } from '../types/ipc';
+import { IPC_CHANNELS, DownloadOptions, AppSettings, DownloadTask, DownloadTaskProgress, SupportedPlatform } from '../types/ipc';
 import { fetchVideoInfo } from './ytDlpService';
 import { getSettings, saveSettings, updateSettings, loadSettings } from './settingsService';
 import { downloadManager } from './downloadManager';
@@ -11,17 +11,17 @@ import { checkForUpdates, installUpdate } from './ytDlpUpdater';
  * Register all IPC handlers.
  * Called once from main.ts during app.whenReady().
  */
-export function attachYoutubeHandlers() {
+export function attachMediaHandlers() {
   // Ensure settings are loaded at startup
   loadSettings();
   downloadManager.init();
 
   /* ── Fetch video metadata ─────────────────────────────── */
-  ipcMain.handle(IPC_CHANNELS.FETCH_VIDEO_INFO, async (_event, url: string) => {
+  ipcMain.handle(IPC_CHANNELS.FETCH_VIDEO_INFO, async (_event, url: string, platform?: SupportedPlatform) => {
     try {
-      console.log(`[IPC] fetch-video-info: ${url}`);
-      const info = await fetchVideoInfo(url);
-      return { success: true, data: info };
+      console.log(`[IPC] fetch-video-info: ${url} (platform: ${platform || 'unknown'})`);
+      const info = await fetchVideoInfo(url, platform);
+      return { success: true, data: info.data, warnings: info.warnings };
     } catch (err: any) {
       console.error(`[IPC] fetch-video-info error:`, err.message);
       return { success: false, error: err.message };
@@ -29,7 +29,7 @@ export function attachYoutubeHandlers() {
   });
 
   /* ── Batch add tasks ────────────────────────────────────── */
-  ipcMain.handle(IPC_CHANNELS.ADD_TASKS, async (_event, tasks: { url: string; title: string; thumbnail: string; }[]) => {
+  ipcMain.handle(IPC_CHANNELS.ADD_TASKS, async (_event, tasks: { url: string; title: string; thumbnail: string; platform: SupportedPlatform }[]) => {
     try {
       console.log(`[IPC] add-tasks: ${tasks.length} items`);
       const taskIds = downloadManager.addTasks(tasks);
@@ -53,7 +53,7 @@ export function attachYoutubeHandlers() {
   });
 
   /* ── Add single download (Legacy/Explicit) ────────────── */
-  ipcMain.handle(IPC_CHANNELS.ADD_DOWNLOAD, async (event, options: DownloadOptions & { title?: string; thumbnail?: string }) => {
+  ipcMain.handle(IPC_CHANNELS.ADD_DOWNLOAD, async (event, options: DownloadOptions & { title?: string; thumbnail?: string; platform: SupportedPlatform }) => {
     try {
       console.log(`[IPC] add-download:`, options);
       const settings = getSettings();
@@ -101,6 +101,7 @@ export function attachYoutubeHandlers() {
       // Add task to the download manager queue
       const taskId = downloadManager.addTask({
         url: options.url,
+        platform: options.platform,
         title: options.title || 'Untitled',
         thumbnail: options.thumbnail || '',
         format: options.format,

@@ -7,10 +7,13 @@ import SettingsPanel from './components/SettingsPanel';
 import DebugPanel from './components/DebugPanel';
 import UpdateModal from './components/UpdateModal';
 import AppUpdateModal from './components/AppUpdateModal';
+import type { SupportedPlatform } from '../types/ipc';
 
 /* ── Types ──────────────────────────────────────────────── */
 interface DownloadTask {
   id: string;
+  url?: string;
+  platform: SupportedPlatform;
   title: string;
   thumbnail: string;
   format: 'mp4' | 'mp3';
@@ -52,6 +55,10 @@ export default function App() {
   const [url, setUrl] = useState('');
   const [isFetching, setIsFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  /* Platform */
+  const [platform, setPlatform] = useState<SupportedPlatform>('youtube');
 
   /* Download queue */
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
@@ -150,6 +157,7 @@ export default function App() {
     if (!url.trim()) return;
     setIsFetching(true);
     setError(null);
+    setWarning(null);
 
     if (!hasElectronAPI) {
       setError('Electron API not available — run this app inside Electron to fetch real video data.');
@@ -157,18 +165,42 @@ export default function App() {
       return;
     }
 
+    let cleanUrl = url.trim();
     try {
-      console.log('[App] Fetching playlist or video info for:', url.trim());
-      const result = await window.api.fetchVideoInfo(url.trim());
+      const parsedUrl = new URL(cleanUrl);
+      // Strip only known generic tracking tokens
+      ['si', 'utm_source', 'utm_medium', 'utm_campaign'].forEach(p => parsedUrl.searchParams.delete(p));
+      cleanUrl = parsedUrl.toString();
+    } catch {
+      // Ignored
+    }
+
+    let detectedPlatform: 'youtube' | 'soundcloud' | 'unknown' = 'unknown';
+    if (cleanUrl.includes("youtube.com") || cleanUrl.includes("youtu.be")) detectedPlatform = 'youtube';
+    else if (cleanUrl.includes("soundcloud.com")) detectedPlatform = 'soundcloud';
+
+    const finalPlatform = detectedPlatform !== 'unknown' ? detectedPlatform : platform;
+    if (finalPlatform !== platform) {
+      setPlatform(finalPlatform);
+    }
+
+    try {
+      console.log('[App] Fetching playlist or video info for:', cleanUrl, 'platform:', finalPlatform);
+      const result = await window.api.fetchVideoInfo(cleanUrl, finalPlatform);
       if (result.success && result.data && result.data.length > 0) {
         console.log(`[App] Video info received: ${result.data.length} item(s)`);
         
+        if (result.warnings && result.warnings.length > 0) {
+            setWarning(`Note: ${result.warnings.length} track(s) were unavailable or private and have been skipped.`);
+        }
+
         // Directly add all items to the queue in 'pending' state
         const taskResult = await window.api.addTasks(
           result.data.map(v => ({
              url: v.url,
              title: v.title,
              thumbnail: v.thumbnail,
+             platform: finalPlatform
           }))
         );
 
@@ -188,7 +220,7 @@ export default function App() {
     }
 
     setIsFetching(false);
-  }, [url]);
+  }, [url, platform]);
 
   const handleCancelTask = useCallback(async (taskId: string) => {
     if (hasElectronAPI) {
@@ -307,75 +339,135 @@ export default function App() {
         </div>
       </header>
 
-      {/* ─── Main Content ───────────────────── */}
-      <main className="max-w-2xl mx-auto px-5 py-8 space-y-6">
-        {/* URL Input */}
-        <UrlInput
-          url={url}
-          onUrlChange={setUrl}
-          onPaste={handlePaste}
-          onFetch={handleFetch}
-          isFetching={isFetching}
-        />
-
-        {/* Error message */}
-        {error && (
-          <div className="animate-fade-in-up rounded-xl px-4 py-3 bg-red-50 dark:bg-red-900/20 
-                          border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm
-                          flex items-start gap-3 shadow-sm shadow-red-500/5">
-            <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round"
-                    d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      {/* ─── Main Content Layout ──────────────── */}
+      <div className="max-w-4xl mx-auto px-5 py-8 flex items-start gap-8 flex-col md:flex-row">
+        
+        {/* Sidebar Navigation */}
+        <aside className="w-full md:w-56 shrink-0 space-y-2 relative">
+          <h2 className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-4 px-2">Platforms</h2>
+          <button 
+            onClick={() => setPlatform('youtube')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
+                        ${platform === 'youtube' 
+                          ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 shadow-sm border border-red-100 dark:border-red-900/30' 
+                          : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent'}`}
+          >
+            <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M21.582 6.186a2.506 2.506 0 00-1.766-1.774C18.258 4 12 4 12 4s-6.258 0-7.816.412A2.506 2.506 0 002.418 6.186C2 7.747 2 12 2 12s0 4.253.418 5.814a2.506 2.506 0 001.766 1.774C5.742 20 12 20 12 20s6.258 0 7.816-.412a2.506 2.506 0 001.766-1.774C22 16.253 22 12 22 12s0-4.253-.418-5.814zM9.75 15.02v-6.04L15.5 12l-5.75 3.02z" />
             </svg>
-            <div className="flex-1 min-w-0">
-              <span className="font-semibold mr-1">Error:</span>
-              <span className="opacity-90">{error}</span>
-              <div className="flex gap-2 mt-2.5">
-                <button 
-                  onClick={handleFetch} 
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/60 transition-colors cursor-pointer"
-                >
-                  Try Again
-                </button>
-                <button 
-                  onClick={() => { setError(null); setIsSettingsOpen(true); }} 
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/60 transition-colors cursor-pointer flex items-center gap-1"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Authentication Settings
-                </button>
-              </div>
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="mt-0.5 text-red-400 hover:text-red-700 dark:hover:text-red-200 transition-colors cursor-pointer flex-shrink-0 p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md"
-              title="Dismiss"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        )}
+            YouTube
+          </button>
 
-        {/* ─── Download Queue ─────────────────── */}
-        <DownloadQueue
-          tasks={tasks}
-          onStart={handleStartTask}
-          onUpdateTask={handleUpdateTask}
-          onStartAllPending={handleStartAllPending}
-          onCancel={handleCancelTask}
-          onRemove={handleRemoveTask}
-          onRetry={handleRetryTask}
-          onOpenFolder={handleOpenFolder}
-          onOpenFile={handleOpenFile}
-          onClearCompleted={handleClearCompleted}
-          onClearAllTasks={handleClearAllTasks}
-        />
-      </main>
+          <button 
+            onClick={() => setPlatform('soundcloud')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
+                        ${platform === 'soundcloud' 
+                          ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 shadow-sm border border-orange-100 dark:border-orange-900/30' 
+                          : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent'}`}
+          >
+            <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M11.69 13.92H7.2a.5.5 0 01-.5-.5v-4.14a.5.5 0 01.5-.5h2.24a.5.5 0 01.44.27l1.97 3.93a.5.5 0 010 .45l-.16.49z"/>
+              <path d="M19.34 8.78h-2.1a1 1 0 00-1 1v6a1 1 0 001 1h2.1a3.66 3.66 0 003.66-3.66v-.68A3.66 3.66 0 0019.34 8.78z"/>
+              <path d="M11.66 10.42a1 1 0 010-2h2.09a1 1 0 011 1v6a1 1 0 01-1 1h-2.09a1 1 0 010-2V10.42zM5.3 10.7a1 1 0 010 2h.2v-2h-.2zM3.4 11.2a1 1 0 010 2h.1v-2h-.1zM1.5 11.7a1 1 0 010 2h0v-2h0z"/>
+            </svg>
+            SoundCloud
+          </button>
+        </aside>
+
+        <main className="flex-1 w-full space-y-6">
+          {/* URL Input */}
+          <UrlInput
+            url={url}
+            placeholder={platform === "youtube" ? "Paste YouTube video or playlist URL..." : "Paste SoundCloud track or playlist URL..."}
+            onUrlChange={setUrl}
+            onPaste={handlePaste}
+            onFetch={handleFetch}
+            isFetching={isFetching}
+          />
+
+          {/* Warning Message */}
+          {warning && (
+            <div className="animate-fade-in-up rounded-xl px-4 py-3 bg-yellow-50 dark:bg-yellow-900/20 
+                            border border-yellow-200 dark:border-yellow-800/60 text-yellow-800 dark:text-yellow-300 text-sm
+                            flex items-center gap-3 shadow-sm">
+              <svg className="w-5 h-5 text-yellow-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" 
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <span className="opacity-90 leading-snug">{warning}</span>
+              </div>
+              <button
+                onClick={() => setWarning(null)}
+                className="text-yellow-600 hover:text-yellow-900 dark:hover:text-yellow-100 transition-colors p-1"
+                title="Dismiss"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {/* Error message */}
+          {error && (
+            <div className="animate-fade-in-up rounded-xl px-4 py-3 bg-red-50 dark:bg-red-900/20 
+                            border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm
+                            flex items-start gap-3 shadow-sm shadow-red-500/5">
+              <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold mr-1">Error:</span>
+                <span className="opacity-90">{error}</span>
+                <div className="flex gap-2 mt-2.5">
+                  <button 
+                    onClick={handleFetch} 
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/60 transition-colors cursor-pointer"
+                  >
+                    Try Again
+                  </button>
+                  <button 
+                    onClick={() => { setError(null); setIsSettingsOpen(true); }} 
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/60 transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Authentication Settings
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="mt-0.5 text-red-400 hover:text-red-700 dark:hover:text-red-200 transition-colors cursor-pointer flex-shrink-0 p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md"
+                title="Dismiss"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {/* ─── Download Queue ─────────────────── */}
+          <DownloadQueue
+            tasks={tasks}
+            onStart={handleStartTask}
+            onUpdateTask={handleUpdateTask}
+            onStartAllPending={handleStartAllPending}
+            onCancel={handleCancelTask}
+            onRemove={handleRemoveTask}
+            onRetry={handleRetryTask}
+            onOpenFolder={handleOpenFolder}
+            onOpenFile={handleOpenFile}
+            onClearCompleted={handleClearCompleted}
+            onClearAllTasks={handleClearAllTasks}
+          />
+        </main>
+      </div>
 
       {/* ─── Footer ─────────────────────────── */}
       <footer className="max-w-2xl mx-auto px-5 pb-6">

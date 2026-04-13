@@ -4,9 +4,10 @@ import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
-import { DownloadTask, DownloadOptions, DownloadProgress, DownloadTaskProgress } from '../types/ipc';
+import { DownloadTask, DownloadOptions, DownloadProgress, DownloadTaskProgress, SupportedPlatform } from '../types/ipc';
 import { downloadVideo } from './ytDlpService';
 import { getSettings } from './settingsService';
+import { getPlatformHandler } from './platformHandler';
 
 /**
  * DownloadManager — owns the download queue and concurrency.
@@ -93,18 +94,22 @@ class DownloadManager extends EventEmitter {
     url: string;
     title: string;
     thumbnail: string;
+    platform: SupportedPlatform;
   }[]): string[] {
     const ids: string[] = [];
     
     for (const t of tasks) {
+      const handler = getPlatformHandler(t.platform);
+      const defaults = handler.getDefaults();
       const id = randomUUID();
       const task: DownloadTask = {
         id,
         url: t.url,
+        platform: t.platform,
         title: t.title || 'Untitled',
         thumbnail: t.thumbnail || '',
-        format: 'mp4',
-        quality: 'best',
+        format: defaults.format,
+        quality: defaults.quality,
         status: 'pending',
         progress: { percent: 0, downloaded: '—', total: '—', speed: '—', eta: '—' },
         addedAt: Date.now(),
@@ -149,11 +154,6 @@ class DownloadManager extends EventEmitter {
       task.outputDir = outputDir;
     }
 
-    if (!task.format || !task.quality) {
-       console.error(`[DownloadManager] Cannot start task ${id} without format/quality`);
-       return false;
-    }
-
     // Reset progress
     task.progress = { percent: 0, downloaded: '—', total: '—', speed: '—', eta: '—' };
     task.error = undefined;
@@ -170,6 +170,7 @@ class DownloadManager extends EventEmitter {
 
   addTask(opts: {
     url: string;
+    platform: SupportedPlatform;
     title: string;
     thumbnail: string;
     format: 'mp4' | 'mp3';
@@ -177,14 +178,22 @@ class DownloadManager extends EventEmitter {
     outputDir?: string;
     customFileName?: string;
   }): string {
+    const handler = getPlatformHandler(opts.platform);
+    const defaults = handler.getDefaults();
+    
+    // Fallbacks if not provided
+    const format = opts.format || defaults.format;
+    const quality = opts.quality || defaults.quality;
+
     const id = randomUUID();
     const task: DownloadTask = {
       id,
       url: opts.url,
+      platform: opts.platform,
       title: opts.title || 'Untitled',
       thumbnail: opts.thumbnail || '',
-      format: opts.format,
-      quality: opts.quality,
+      format,
+      quality,
       outputDir: opts.outputDir,
       customFileName: opts.customFileName,
       status: 'queued',
@@ -355,6 +364,7 @@ class DownloadManager extends EventEmitter {
 
     const options: DownloadOptions = {
       url: task.url,
+      platform: task.platform,
       format: task.format as 'mp4' | 'mp3',
       quality: task.quality,
       outputDir: finalOutputDir,

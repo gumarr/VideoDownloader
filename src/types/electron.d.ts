@@ -1,21 +1,22 @@
-import { AppSettings, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress, VideoMetadata } from './ipc';
+import { AppSettings, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress, SupportedPlatform, VideoMetadata } from './ipc';
 
 /** Shape of the API exposed to the renderer via contextBridge */
 export interface ElectronAPI {
   /* ── Video info ── */
-  fetchVideoInfo: (url: string) => Promise<{
+  fetchVideoInfo: (url: string, platform?: SupportedPlatform) => Promise<{
     success: boolean;
     data?: VideoMetadata[];
+    warnings?: string[];
     error?: string;
   }>;
 
   /* ── Download queue ── */
-  addDownload: (options: DownloadOptions & { title?: string; thumbnail?: string }) => Promise<{
+  addDownload: (options: DownloadOptions & { title?: string; thumbnail?: string; platform: SupportedPlatform }) => Promise<{
     success: boolean;
     taskId?: string;
     error?: string;
   }>;
-  addTasks: (tasks: { url: string; title: string; thumbnail: string; }[]) => Promise<{
+  addTasks: (tasks: { url: string; title: string; thumbnail: string; platform: SupportedPlatform }[]) => Promise<{
     success: boolean;
     taskIds?: string[];
     error?: string;

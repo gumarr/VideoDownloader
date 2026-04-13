@@ -1,5 +1,8 @@
 /* ── Shared IPC type definitions ── */
 
+/** Supported platforms for downloading */
+export type SupportedPlatform = 'youtube' | 'soundcloud';
+
 /** Metadata returned from yt-dlp --dump-json */
 export interface VideoMetadata {
   id: string;
@@ -9,6 +12,7 @@ export interface VideoMetadata {
   duration: number;        // seconds
   durationFormatted: string; // e.g. "14:32"
   uploader: string;
+  platform: SupportedPlatform;
   formats: VideoFormat[];
 }
 
@@ -25,6 +29,7 @@ export interface VideoFormat {
 /** Options sent from renderer to main for downloading */
 export interface DownloadOptions {
   url: string;
+  platform: SupportedPlatform;
   format: 'mp4' | 'mp3';
   quality: string;            // e.g. "1080p", "720p"
   outputDir?: string;         // optional save-to directory
@@ -49,6 +54,7 @@ export interface DownloadTaskProgress extends DownloadProgress {
 export interface DownloadTask {
   id: string;
   url: string;
+  platform: SupportedPlatform;
   title: string;
   thumbnail: string;
   format: 'mp4' | 'mp3';

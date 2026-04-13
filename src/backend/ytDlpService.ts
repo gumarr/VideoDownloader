@@ -7,8 +7,10 @@ import {
   VideoFormat,
   DownloadOptions,
   DownloadProgress,
+  SupportedPlatform,
 } from '../types/ipc';
 import { getSettings } from './settingsService';
+import { getPlatformHandler } from './platformHandler';
 
 /* ── Cached Cookie Configuration ──────────────────────── */
 let cachedCookieArgs: string[] = [];
@@ -138,32 +140,16 @@ function runYtDlp(args: string[]): Promise<string> {
   });
 }
 
-export async function fetchVideoInfo(url: string): Promise<VideoMetadata[]> {
-  console.log(`[ytDlpService] fetchVideoInfo started for URL: ${url}`);
+export async function fetchVideoInfo(url: string, platform?: SupportedPlatform): Promise<{ data: VideoMetadata[], warnings: string[] }> {
+  console.log(`[ytDlpService] fetchVideoInfo started for URL: ${url} (platform: ${platform || 'unknown'})`);
 
   const settings = getSettings();
+  const handler = getPlatformHandler(platform);
   let candidateArgs: string[][] = [];
 
-  // Identify YouTube playlist type
-  let isRealPlaylist = false;
-  try {
-    const parsedUrl = new URL(url);
-    const listParam = parsedUrl.searchParams.get('list');
-    const startRadio = parsedUrl.searchParams.has('start_radio');
-    
-    // Auto-generated Mixes start with 'RD'. start_radio=1 also indicates a Mix.
-    // If there is no 'list', it's a single video.
-    // Only treat it as a true playlist if list exists, doesn't start with RD, and no start_radio.
-    if (listParam && !listParam.startsWith('RD') && !startRadio) {
-      isRealPlaylist = true;
-    }
-  } catch (e) {
-    // URL parsing failed, fallback to default behavior (single video)
-  }
-
-  const playlistArgs = isRealPlaylist 
-    ? ['--flat-playlist', '--playlist-end', '150'] 
-    : ['--no-playlist'];
+  // Sanitize URL via platform handler
+  const cleanUrl = handler.sanitizeUrl(url);
+  const playlistArgs = handler.getExtractArgs(cleanUrl);
 
   // 1. Cached successful arguments
   if (cachedCookieArgs.length > 0) {
@@ -215,7 +201,7 @@ export async function fetchVideoInfo(url: string): Promise<VideoMetadata[]> {
         '-J',
         ...playlistArgs,
         '--no-warnings',
-        url,
+        cleanUrl,
       ]);
 
       console.log(`[ytDlpService] Raw JSON received, parsing...`);
@@ -236,9 +222,50 @@ export async function fetchVideoInfo(url: string): Promise<VideoMetadata[]> {
         entries = [data]; // single video
       }
 
+      const warnings: string[] = [];
+
       const results: VideoMetadata[] = entries
-        .filter((entry: any) => entry && entry.id && entry.title !== '[Deleted video]' && entry.title !== '[Private video]')
         .map((entry: any) => {
+          // Robust title extraction — SoundCloud uses 'title', 'track', or 'fulltitle'
+          let rawTitle = entry.title 
+            || entry.track 
+            || entry.fulltitle 
+            || entry.alt_title
+            || entry.display_id 
+            || 'Untitled Track';
+
+          if (rawTitle === 'Unknown Title') {
+             rawTitle = 'Untitled Track';
+          }
+
+          // Debug: log raw entry keys for SoundCloud diagnosis
+          if (platform === 'soundcloud') {
+            console.log(`[ytDlpService] SC entry → id: ${entry.id}, title: "${rawTitle}", has_thumbnail: ${!!entry.thumbnail || !!entry.artwork_url}`);
+          }
+
+          if (!entry || !entry.id || rawTitle === '[Deleted video]' || rawTitle === '[Private video]') {
+            warnings.push(`Skipped unavailable or private track in playlist (id: ${entry?.id || 'unknown'})`);
+            return null;
+          }
+
+          // Robust thumbnail extraction — SoundCloud uses 'artwork_url' or nested thumbnails
+          const thumbnail = entry.thumbnail 
+            || entry.artwork_url 
+            || (entry.thumbnails && entry.thumbnails.length > 0 ? entry.thumbnails[entry.thumbnails.length - 1]?.url : '') 
+            || '';
+
+          // Robust URL — SoundCloud entries use 'webpage_url', YouTube uses constructed URLs
+          let entryUrl: string;
+          if (entry.webpage_url) {
+            entryUrl = entry.webpage_url;
+          } else if (entry.url && entry.url.startsWith('http')) {
+            entryUrl = entry.url;
+          } else if (platform === 'youtube' && entry.id) {
+            entryUrl = `https://www.youtube.com/watch?v=${entry.id}`;
+          } else {
+            entryUrl = cleanUrl;
+          }
+
           // Extract relevant formats
           const formats: VideoFormat[] = (entry.formats || [])
             .filter((f: any) => f.ext !== 'mhtml')
@@ -254,21 +281,22 @@ export async function fetchVideoInfo(url: string): Promise<VideoMetadata[]> {
 
           return {
             id: entry.id || '',
-            url: entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url),
-            title: entry.title || 'Unknown Title',
-            thumbnail: entry.thumbnail || entry.thumbnails?.[0]?.url || '',
+            url: entryUrl,
+            title: rawTitle,
+            thumbnail,
             duration: entry.duration || 0,
             durationFormatted: formatDuration(entry.duration || 0),
-            uploader: entry.uploader || entry.channel || 'Unknown',
+            uploader: entry.uploader || entry.channel || entry.artist || 'Unknown',
+            platform: platform || 'youtube',
             formats,
           };
-      });
+        }).filter(Boolean) as VideoMetadata[];
 
       if (results.length === 0) {
-        throw new Error("No accessible videos found in the specific URL/Playlist.");
+        throw new Error("No accessible videos found in the specific URL/Playlist. All tracks were skipped.");
       }
 
-      return results;
+      return { data: results, warnings };
     } catch (err: any) {
       console.warn(`[ytDlpService] Attempt ${i + 1} failed: ${err.message}`);
       lastError = err;
@@ -334,6 +362,7 @@ export function downloadVideo(
   // Determine output directory
   const outputDir = options.outputDir || app.getPath('downloads');
   // Use custom file name if provided, otherwise default to video title
+  // ALWAYS use %(title)s — each task targets a single track URL (playlists are split during fetch)
   const fileNamePart = options.customFileName
     ? `${options.customFileName}.%(ext)s`
     : '%(title)s.%(ext)s';
@@ -349,14 +378,14 @@ export function downloadVideo(
   const args: string[] = [
     '--ffmpeg-location', path.dirname(ffmpegPath),
     ...cachedCookieArgs, // Apply the successful cookie args found during fetchVideoInfo
-    '--no-playlist',
+    '--no-playlist',     // Each task is a single track/video — never download the entire playlist
     '--no-warnings',
     '--newline',       // ensures progress lines are newline-separated
     '-o', outputTemplate,
   ];
 
-  if (options.format === 'mp3') {
-    // Extract audio as MP3
+  if (options.platform === 'soundcloud' || options.format === 'mp3') {
+    // Extract audio as MP3 (Forced for SoundCloud, optional for YouTube)
     args.push(
       '-x',                       // extract audio
       '--audio-format', 'mp3',

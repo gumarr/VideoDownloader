@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
-import { attachYoutubeHandlers } from '../backend/youtubeService';
+import { attachMediaHandlers } from '../backend/mediaService';
 import { loadSettings } from '../backend/settingsService';
 import { initAppUpdater, checkForAppUpdate, downloadAppUpdate, installAppUpdate } from '../backend/appUpdater';
 import { IPC_CHANNELS } from '../types/ipc';
@@ -42,7 +42,7 @@ app.whenReady().then(() => {
   console.log('[main] Settings loaded');
 
   // Register all IPC handlers (including settings handlers)
-  attachYoutubeHandlers();
+  attachMediaHandlers();
 
   // Initialize app auto-updater
   initAppUpdater();

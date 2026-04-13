@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, AppSettings, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress } from '../types/ipc';
+import { IPC_CHANNELS, AppSettings, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress, SupportedPlatform } from '../types/ipc';
 
 console.log('[preload] Preload script starting...');
 
@@ -16,15 +16,15 @@ console.log('[preload] Preload script starting...');
 contextBridge.exposeInMainWorld('api', {
   /* ── Video info ──────────────────────────────────────── */
 
-  fetchVideoInfo: (url: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.FETCH_VIDEO_INFO, url),
+  fetchVideoInfo: (url: string, platform?: SupportedPlatform) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FETCH_VIDEO_INFO, url, platform),
 
   /* ── Download queue ──────────────────────────────────── */
 
-  addDownload: (options: DownloadOptions & { title?: string; thumbnail?: string }) =>
+  addDownload: (options: DownloadOptions & { title?: string; thumbnail?: string; platform: SupportedPlatform }) =>
     ipcRenderer.invoke(IPC_CHANNELS.ADD_DOWNLOAD, options),
 
-  addTasks: (tasks: { url: string; title: string; thumbnail: string; }[]) =>
+  addTasks: (tasks: { url: string; title: string; thumbnail: string; platform: SupportedPlatform }[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.ADD_TASKS, tasks),
 
   startTask: (taskId: string, outputDir?: string) =>
