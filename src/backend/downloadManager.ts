@@ -339,7 +339,7 @@ class DownloadManager extends EventEmitter {
     }
   }
 
-  private startDownload(taskId: string) {
+  private async startDownload(taskId: string) {
     const task = this.tasks.get(taskId);
     if (!task) return;
 
@@ -371,17 +371,46 @@ class DownloadManager extends EventEmitter {
       customFileName: task.customFileName,
     };
 
-    const { proc, promise } = downloadVideo(options, (progress: DownloadProgress) => {
-      // Update task progress
-      task.progress = progress;
+    let proc: import('child_process').ChildProcess;
+    let promise: Promise<string>;
 
-      // Emit per-task progress event
-      const taskProgress: DownloadTaskProgress = {
-        ...progress,
-        taskId,
-      };
-      this.emit('task-progress', taskProgress);
-    });
+    try {
+      // downloadVideo is async because Facebook URLs need to await getWorkingCookieArgs()
+      ({ proc, promise } = await downloadVideo(options, (progress: DownloadProgress) => {
+        // Update task progress
+        task.progress = progress;
+
+        // Emit per-task progress event
+        const taskProgress: DownloadTaskProgress = {
+          ...progress,
+          taskId,
+        };
+        this.emit('task-progress', taskProgress);
+      }));
+    } catch (err: any) {
+      // downloadVideo itself threw before spawning (e.g. binary missing)
+      // Read status fresh — cancelTask() may have mutated it during the await
+      const statusAfterError = task.status as DownloadTask['status'];
+      if (statusAfterError !== 'cancelled') {
+        task.status = 'failed';
+        task.error = err.message;
+        console.error(`[DownloadManager] Failed to start download: ${taskId} — ${err.message}`);
+      }
+      this.activeIds.delete(taskId);
+      this.emitUpdate();
+      this.processQueue();
+      return;
+    }
+
+    // If the task was cancelled during the await, kill the now-spawned process
+    const statusAfterAwait = task.status as DownloadTask['status'];
+    if (statusAfterAwait === 'cancelled') {
+      try { proc.kill('SIGINT'); } catch { /* ignore */ }
+      this.activeIds.delete(taskId);
+      this.emitUpdate();
+      this.processQueue();
+      return;
+    }
 
     this.processes.set(taskId, proc);
 

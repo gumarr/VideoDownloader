@@ -73,6 +73,12 @@ app.whenReady().then(() => {
   });
 });
 
+app.on('before-quit', () => {
+  // The persist:facebook session is intentionally preserved on disk so users
+  // remain logged in between app sessions. Do NOT clear it here.
+  console.log('[main] App quitting — Facebook session preserved');
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();

@@ -8,6 +8,7 @@ export interface ElectronAPI {
     data?: VideoMetadata[];
     warnings?: string[];
     error?: string;
+    requiresFacebookAuth?: boolean;
   }>;
 
   /* ── Download queue ── */
@@ -82,6 +83,11 @@ export interface ElectronAPI {
 
   /* ── App Info ── */
   getAppVersion: () => Promise<string>;
+
+  /* ── Facebook auth ── */
+  facebookLogin: () => Promise<{ success: boolean; error?: string }>;
+  facebookLogout: () => Promise<{ success: boolean }>;
+  getFacebookAuthStatus: () => Promise<{ isLoggedIn: boolean }>;
 }
 
 declare global {

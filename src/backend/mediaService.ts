@@ -6,6 +6,7 @@ import { fetchVideoInfo } from './ytDlpService';
 import { getSettings, saveSettings, updateSettings, loadSettings } from './settingsService';
 import { downloadManager } from './downloadManager';
 import { checkForUpdates, installUpdate } from './ytDlpUpdater';
+import { facebookSessionManager } from './facebookSessionManager';
 
 /**
  * Register all IPC handlers.
@@ -24,7 +25,15 @@ export function attachMediaHandlers() {
       return { success: true, data: info.data, warnings: info.warnings };
     } catch (err: any) {
       console.error(`[IPC] fetch-video-info error:`, err.message);
-      return { success: false, error: err.message };
+      const requiresFacebookAuth = err.message?.startsWith('FACEBOOK_AUTH_REQUIRED:');
+      const cleanError = requiresFacebookAuth
+        ? err.message.replace('FACEBOOK_AUTH_REQUIRED: ', '')
+        : err.message;
+      return {
+        success: false,
+        error: cleanError,
+        requiresFacebookAuth: requiresFacebookAuth ?? false,
+      };
     }
   });
 
@@ -265,7 +274,34 @@ export function attachMediaHandlers() {
     app.quit();
   });
 
-  /* ── Forward download manager events to renderer ──────── */
+  /* ── Facebook Auth Handlers ───────────────────────────── */
+
+  ipcMain.handle(IPC_CHANNELS.FACEBOOK_AUTH_STATUS, async () => {
+    const isLoggedIn = await facebookSessionManager.isLoggedIn();
+    return { isLoggedIn };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FACEBOOK_LOGIN, async () => {
+    try {
+      const success = await facebookSessionManager.openLoginWindow();
+      return { success };
+    } catch (err: any) {
+      console.error('[IPC] facebook-login error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FACEBOOK_LOGOUT, async () => {
+    try {
+      await facebookSessionManager.clearSession();
+      return { success: true };
+    } catch (err: any) {
+      console.error('[IPC] facebook-logout error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  /* ── Forward download manager events to renderer ───────── */
   function getMainWindow(): BrowserWindow | null {
     const wins = BrowserWindow.getAllWindows();
     return wins.length > 0 ? wins[0] : null;

@@ -7,29 +7,9 @@ import SettingsPanel from './components/SettingsPanel';
 import DebugPanel from './components/DebugPanel';
 import UpdateModal from './components/UpdateModal';
 import AppUpdateModal from './components/AppUpdateModal';
-import type { SupportedPlatform } from '../types/ipc';
-
-/* ── Types ──────────────────────────────────────────────── */
-interface DownloadTask {
-  id: string;
-  url?: string;
-  platform: SupportedPlatform;
-  title: string;
-  thumbnail: string;
-  format: 'mp4' | 'mp3';
-  quality: string;
-  status: 'pending' | 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
-  progress: {
-    percent: number;
-    downloaded: string;
-    total: string;
-    speed: string;
-    eta: string;
-  };
-  filePath?: string;
-  error?: string;
-  addedAt: number;
-}
+import FacebookAuthPrompt from './components/FacebookAuthPrompt';
+import { detectPlatform } from './utils/platformDetect';
+import type { SupportedPlatform, DownloadTask } from '../types/ipc';
 
 /* ── Check if running inside Electron ───────────────────── */
 const hasElectronAPI = typeof window !== 'undefined' && !!window.api;
@@ -60,6 +40,11 @@ export default function App() {
   /* Platform */
   const [platform, setPlatform] = useState<SupportedPlatform>('youtube');
 
+  /* Facebook auth */
+  const [facebookLoggedIn, setFacebookLoggedIn] = useState(false);
+  const [needsFacebookAuth, setNeedsFacebookAuth] = useState(false);
+  const [facebookAuthLoading, setFacebookAuthLoading] = useState(false);
+
   /* Download queue */
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
 
@@ -79,6 +64,14 @@ export default function App() {
   useEffect(() => {
     if (!hasElectronAPI) return;
     window.api.getAppVersion().then(v => setAppVersion(v));
+  }, []);
+
+  /* Check Facebook auth status on mount */
+  useEffect(() => {
+    if (!hasElectronAPI) return;
+    window.api.getFacebookAuthStatus().then(r => {
+      setFacebookLoggedIn(r.isLoggedIn);
+    });
   }, []);
 
   /* Check for updates on startup */
@@ -158,6 +151,7 @@ export default function App() {
     setIsFetching(true);
     setError(null);
     setWarning(null);
+    setNeedsFacebookAuth(false);
 
     if (!hasElectronAPI) {
       setError('Electron API not available — run this app inside Electron to fetch real video data.');
@@ -175,18 +169,37 @@ export default function App() {
       // Ignored
     }
 
-    let detectedPlatform: 'youtube' | 'soundcloud' | 'unknown' = 'unknown';
-    if (cleanUrl.includes("youtube.com") || cleanUrl.includes("youtu.be")) detectedPlatform = 'youtube';
-    else if (cleanUrl.includes("soundcloud.com")) detectedPlatform = 'soundcloud';
-
-    const finalPlatform = detectedPlatform !== 'unknown' ? detectedPlatform : platform;
+    // Use the shared renderer-safe platform detector (covers Facebook, YouTube, SoundCloud)
+    const detected = detectPlatform(cleanUrl);
+    const finalPlatform: SupportedPlatform = detected !== 'youtube' || cleanUrl.includes('youtube') || cleanUrl.includes('youtu.be')
+      ? detected
+      : platform;
     if (finalPlatform !== platform) {
       setPlatform(finalPlatform);
+    }
+
+    // Validate Facebook URLs before sending to yt-dlp
+    if (finalPlatform === 'facebook') {
+      const isValidFbUrl = /^https?:\/\/(www\.|m\.|web\.)?facebook\.com|^https?:\/\/fb\.watch|^https?:\/\/fb\.com/i.test(cleanUrl);
+      if (!isValidFbUrl) {
+        setError('Please enter a valid Facebook URL (facebook.com or fb.watch)');
+        setIsFetching(false);
+        return;
+      }
     }
 
     try {
       console.log('[App] Fetching playlist or video info for:', cleanUrl, 'platform:', finalPlatform);
       const result = await window.api.fetchVideoInfo(cleanUrl, finalPlatform);
+
+      // Facebook private-content gate — show auth prompt instead of a generic error
+      if (result.requiresFacebookAuth) {
+        setNeedsFacebookAuth(true);
+        setError(null);
+        setIsFetching(false);
+        return;
+      }
+
       if (result.success && result.data && result.data.length > 0) {
         console.log(`[App] Video info received: ${result.data.length} item(s)`);
         
@@ -290,6 +303,27 @@ export default function App() {
     }
   }, [tasks]);
 
+  const handleFacebookLogin = useCallback(async () => {
+    if (!hasElectronAPI) return;
+    setFacebookAuthLoading(true);
+    const result = await window.api.facebookLogin();
+    if (result.success) {
+      setFacebookLoggedIn(true);
+      setNeedsFacebookAuth(false);
+      // Automatically retry the fetch that triggered auth
+      if (url.trim()) {
+        handleFetch();
+      }
+    }
+    setFacebookAuthLoading(false);
+  }, [url, handleFetch]);
+
+  const handleFacebookLogout = useCallback(async () => {
+    if (!hasElectronAPI) return;
+    await window.api.facebookLogout();
+    setFacebookLoggedIn(false);
+  }, []);
+
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-surface-950 transition-colors duration-300">
       {/* ─── Header ─────────────────────────── */}
@@ -372,18 +406,63 @@ export default function App() {
             </svg>
             SoundCloud
           </button>
+
+          {/* Facebook */}
+          <div className="space-y-1">
+            <button
+              onClick={() => { setPlatform('facebook'); setNeedsFacebookAuth(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
+                          ${platform === 'facebook'
+                            ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm border border-blue-100 dark:border-blue-900/30'
+                            : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent'}`}
+            >
+              <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+              Facebook
+            </button>
+
+            {/* Auth status indicator — only shown when Facebook is selected */}
+            {platform === 'facebook' && (
+              <div className="flex items-center gap-2 px-4 py-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0
+                  ${facebookLoggedIn ? 'bg-accent-500' : 'bg-surface-400'}`} />
+                {facebookLoggedIn ? (
+                  <span className="text-[11px] text-accent-600 dark:text-accent-400">Connected</span>
+                ) : (
+                  <span className="text-[11px] text-surface-400">Not connected</span>
+                )}
+              </div>
+            )}
+          </div>
         </aside>
 
         <main className="flex-1 w-full space-y-6">
           {/* URL Input */}
           <UrlInput
             url={url}
-            placeholder={platform === "youtube" ? "Paste YouTube video or playlist URL..." : "Paste SoundCloud track or playlist URL..."}
+            placeholder={
+              platform === 'youtube' ? 'Paste YouTube video or playlist URL...' :
+              platform === 'soundcloud' ? 'Paste SoundCloud track or playlist URL...' :
+              'Paste Facebook video, reel, or post URL...'
+            }
             onUrlChange={setUrl}
             onPaste={handlePaste}
             onFetch={handleFetch}
             isFetching={isFetching}
           />
+
+          {/* Facebook Auth Prompt — shown when platform is Facebook */}
+          {platform === 'facebook' && (needsFacebookAuth || !facebookLoggedIn) && (
+            <FacebookAuthPrompt
+              isLoading={facebookAuthLoading}
+              isLoggedIn={facebookLoggedIn}
+              triggeredByError={needsFacebookAuth}
+              onLogin={handleFacebookLogin}
+              onDismiss={() => setNeedsFacebookAuth(false)}
+              onLogout={handleFacebookLogout}
+            />
+          )}
 
           {/* Warning Message */}
           {warning && (

@@ -1,7 +1,7 @@
 /* ── Shared IPC type definitions ── */
 
 /** Supported platforms for downloading */
-export type SupportedPlatform = 'youtube' | 'soundcloud';
+export type SupportedPlatform = 'youtube' | 'soundcloud' | 'facebook';
 
 /** Metadata returned from yt-dlp --dump-json */
 export interface VideoMetadata {
@@ -133,4 +133,9 @@ export const IPC_CHANNELS = {
 
   // App info
   GET_APP_VERSION: 'get-app-version',
+
+  // Facebook auth
+  FACEBOOK_LOGIN: 'facebook-login',
+  FACEBOOK_LOGOUT: 'facebook-logout',
+  FACEBOOK_AUTH_STATUS: 'facebook-auth-status',
 } as const;

@@ -15,6 +15,12 @@ import { getPlatformHandler } from './platformHandler';
 /* ── Cached Cookie Configuration ──────────────────────── */
 let cachedCookieArgs: string[] = [];
 
+/* ── Facebook URL detection ───────────────────────────── */
+
+function isFacebookUrl(url: string): boolean {
+  return /facebook\.com|fb\.watch|fb\.com/i.test(url);
+}
+
 
 /* ── Binary path resolution ───────────────────────────── */
 
@@ -140,16 +146,213 @@ function runYtDlp(args: string[]): Promise<string> {
   });
 }
 
+/* ── Shared output parser ─────────────────────────────── */
+
+/**
+ * Parses raw yt-dlp JSON (-J) output into VideoMetadata entries.
+ * Shared by both the Facebook branch and the generic fallback chain
+ * so the mapping logic is never duplicated.
+ */
+function parseYtDlpOutput(
+  raw: string,
+  platform: SupportedPlatform | undefined,
+  cleanUrl: string,
+): { results: VideoMetadata[]; warnings: string[] } {
+  const data = JSON.parse(raw);
+
+  let entries: any[] = [];
+  if (data._type === 'playlist' || data.entries) {
+    entries = data.entries || [];
+  } else {
+    entries = [data];
+  }
+
+  const warnings: string[] = [];
+
+  const results: VideoMetadata[] = entries
+    .map((entry: any) => {
+      let rawTitle =
+        entry.title ||
+        entry.track ||
+        entry.fulltitle ||
+        entry.alt_title ||
+        entry.display_id ||
+        'Untitled Track';
+
+      if (rawTitle === 'Unknown Title') {
+        rawTitle = 'Untitled Track';
+      }
+
+      if (platform === 'soundcloud') {
+        console.log(
+          `[ytDlpService] SC entry → id: ${entry.id}, title: "${rawTitle}", ` +
+          `has_thumbnail: ${!!(entry.thumbnail || entry.artwork_url)}`,
+        );
+      }
+
+      if (
+        !entry ||
+        !entry.id ||
+        rawTitle === '[Deleted video]' ||
+        rawTitle === '[Private video]'
+      ) {
+        warnings.push(
+          `Skipped unavailable or private track in playlist (id: ${entry?.id || 'unknown'})`,
+        );
+        return null;
+      }
+
+      const thumbnail =
+        entry.thumbnail ||
+        entry.artwork_url ||
+        (entry.thumbnails && entry.thumbnails.length > 0
+          ? entry.thumbnails[entry.thumbnails.length - 1]?.url
+          : '') ||
+        '';
+
+      let entryUrl: string;
+      if (entry.webpage_url) {
+        entryUrl = entry.webpage_url;
+      } else if (entry.url && entry.url.startsWith('http')) {
+        entryUrl = entry.url;
+      } else if (platform === 'youtube' && entry.id) {
+        entryUrl = `https://www.youtube.com/watch?v=${entry.id}`;
+      } else {
+        entryUrl = cleanUrl;
+      }
+
+      const formats: VideoFormat[] = (entry.formats || [])
+        .filter((f: any) => f.ext !== 'mhtml')
+        .map((f: any) => ({
+          formatId: f.format_id || '',
+          ext: f.ext || '',
+          resolution: f.resolution || (f.height ? `${f.width}x${f.height}` : 'audio only'),
+          qualityLabel: getQualityLabel(f.height || null),
+          filesize: f.filesize || f.filesize_approx || null,
+          vcodec: f.vcodec || 'none',
+          acodec: f.acodec || 'none',
+        }));
+
+      return {
+        id: entry.id || '',
+        url: entryUrl,
+        title: rawTitle,
+        thumbnail,
+        duration: entry.duration || 0,
+        durationFormatted: formatDuration(entry.duration || 0),
+        uploader: entry.uploader || entry.channel || entry.artist || 'Unknown',
+        platform: platform || 'youtube',
+        formats,
+      };
+    })
+    .filter(Boolean) as VideoMetadata[];
+
+  return { results, warnings };
+}
+
+/* ── Facebook auth-error classifier ───────────────────────────── */
+
+/**
+ * Returns true when yt-dlp stderr/message text indicates a Facebook
+ * authentication requirement rather than a generic network or parse error.
+ */
+function isFacebookAuthError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('not logged in') ||
+    m.includes('login required') ||
+    m.includes('checkpoint_required') ||
+    m.includes('checkpoint required') ||
+    m.includes('content not available') ||
+    m.includes("this content isn't available") ||
+    m.includes('you must log in') ||
+    m.includes('[private video]') ||
+    // Catch-all: any reference to login inside a Facebook-specific exit
+    (m.includes('facebook') && m.includes('login'))
+  );
+}
+
 export async function fetchVideoInfo(url: string, platform?: SupportedPlatform): Promise<{ data: VideoMetadata[], warnings: string[] }> {
   console.log(`[ytDlpService] fetchVideoInfo started for URL: ${url} (platform: ${platform || 'unknown'})`);
 
   const settings = getSettings();
   const handler = getPlatformHandler(platform);
-  let candidateArgs: string[][] = [];
 
   // Sanitize URL via platform handler
   const cleanUrl = handler.sanitizeUrl(url);
   const playlistArgs = handler.getExtractArgs(cleanUrl);
+
+  /* ── Facebook: dedicated auth path (bypasses generic cookie chain) ── */
+  if (isFacebookUrl(cleanUrl)) {
+    // Lazy import avoids circular dependency:
+    // facebookSessionManager → getYtDlpPath (ytDlpService)
+    // ytDlpService → facebookSessionManager
+    const { facebookSessionManager } = await import('./facebookSessionManager');
+    const fbCookieArgs = await facebookSessionManager.getWorkingCookieArgs();
+
+    // Two candidates: with auth (if available), then unauthenticated fallback
+    const fbCandidates: string[][] = [];
+    if (fbCookieArgs.length > 0) {
+      fbCandidates.push(fbCookieArgs);
+    }
+    fbCandidates.push([]); // always try without auth as last resort
+
+    let lastFbError: any = null;
+
+    for (const cookieArgs of fbCandidates) {
+      const logLabel = cookieArgs.length ? cookieArgs.join(' ') : 'No cookies';
+      console.log(`[ytDlpService] Facebook fetch attempt using: [${logLabel}]`);
+
+      try {
+        const raw = await runYtDlp([
+          ...cookieArgs,
+          '-J',
+          ...playlistArgs,
+          '--no-warnings',
+          '--sleep-interval', '1',
+          cleanUrl,
+        ]);
+
+        const { results, warnings } = parseYtDlpOutput(raw, platform, cleanUrl);
+
+        if (results.length === 0) {
+          throw new Error('No accessible videos found. All tracks were skipped.');
+        }
+
+        console.log(`[ytDlpService] Facebook fetch succeeded: ${results.length} item(s)`);
+        return { data: results, warnings };
+      } catch (err: any) {
+        lastFbError = err;
+        const msg = err.message;
+
+        // Rate-limit / HTTP 429 — surface a clear message, NOT the auth prompt
+        if (
+          msg.toLowerCase().includes('rate') ||
+          msg.toLowerCase().includes('429') ||
+          msg.toLowerCase().includes('too many requests')
+        ) {
+          throw new Error('Facebook rate limit hit. Please wait a moment and try again.');
+        }
+
+        // Detect auth-required signals → surface immediately to the renderer
+        if (isFacebookAuthError(msg)) {
+          throw new Error('FACEBOOK_AUTH_REQUIRED: ' + msg);
+        }
+
+        // Other errors → try next candidate
+        console.warn(`[ytDlpService] Facebook attempt failed (${logLabel}): ${msg}`);
+      }
+    }
+
+    // All Facebook candidates exhausted
+    throw new Error(
+      'FACEBOOK_AUTH_REQUIRED: All auth attempts failed. ' +
+      (lastFbError?.message || 'Unknown error'),
+    );
+  }
+
+  /* ── YouTube / SoundCloud: existing generic cookie chain ── */
+  let candidateArgs: string[][] = [];
 
   // 1. Cached successful arguments
   if (cachedCookieArgs.length > 0) {
@@ -205,7 +408,6 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
       ]);
 
       console.log(`[ytDlpService] Raw JSON received, parsing...`);
-      const data = JSON.parse(raw);
 
       // We succeeded! Cache this cookie config so we don't repeat the loop
       if (cookieArgs.join('|') !== cachedCookieArgs.join('|')) {
@@ -213,87 +415,11 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
         cachedCookieArgs = cookieArgs;
       }
 
-      console.log(`[ytDlpService] Parsed data root type: ${data._type}`);
-
-      let entries = [];
-      if (data._type === 'playlist' || data.entries) {
-        entries = data.entries || [];
-      } else {
-        entries = [data]; // single video
-      }
-
-      const warnings: string[] = [];
-
-      const results: VideoMetadata[] = entries
-        .map((entry: any) => {
-          // Robust title extraction — SoundCloud uses 'title', 'track', or 'fulltitle'
-          let rawTitle = entry.title 
-            || entry.track 
-            || entry.fulltitle 
-            || entry.alt_title
-            || entry.display_id 
-            || 'Untitled Track';
-
-          if (rawTitle === 'Unknown Title') {
-             rawTitle = 'Untitled Track';
-          }
-
-          // Debug: log raw entry keys for SoundCloud diagnosis
-          if (platform === 'soundcloud') {
-            console.log(`[ytDlpService] SC entry → id: ${entry.id}, title: "${rawTitle}", has_thumbnail: ${!!entry.thumbnail || !!entry.artwork_url}`);
-          }
-
-          if (!entry || !entry.id || rawTitle === '[Deleted video]' || rawTitle === '[Private video]') {
-            warnings.push(`Skipped unavailable or private track in playlist (id: ${entry?.id || 'unknown'})`);
-            return null;
-          }
-
-          // Robust thumbnail extraction — SoundCloud uses 'artwork_url' or nested thumbnails
-          const thumbnail = entry.thumbnail 
-            || entry.artwork_url 
-            || (entry.thumbnails && entry.thumbnails.length > 0 ? entry.thumbnails[entry.thumbnails.length - 1]?.url : '') 
-            || '';
-
-          // Robust URL — SoundCloud entries use 'webpage_url', YouTube uses constructed URLs
-          let entryUrl: string;
-          if (entry.webpage_url) {
-            entryUrl = entry.webpage_url;
-          } else if (entry.url && entry.url.startsWith('http')) {
-            entryUrl = entry.url;
-          } else if (platform === 'youtube' && entry.id) {
-            entryUrl = `https://www.youtube.com/watch?v=${entry.id}`;
-          } else {
-            entryUrl = cleanUrl;
-          }
-
-          // Extract relevant formats
-          const formats: VideoFormat[] = (entry.formats || [])
-            .filter((f: any) => f.ext !== 'mhtml')
-            .map((f: any) => ({
-              formatId: f.format_id || '',
-              ext: f.ext || '',
-              resolution: f.resolution || (f.height ? `${f.width}x${f.height}` : 'audio only'),
-              qualityLabel: getQualityLabel(f.height || null),
-              filesize: f.filesize || f.filesize_approx || null,
-              vcodec: f.vcodec || 'none',
-              acodec: f.acodec || 'none',
-            }));
-
-          return {
-            id: entry.id || '',
-            url: entryUrl,
-            title: rawTitle,
-            thumbnail,
-            duration: entry.duration || 0,
-            durationFormatted: formatDuration(entry.duration || 0),
-            uploader: entry.uploader || entry.channel || entry.artist || 'Unknown',
-            platform: platform || 'youtube',
-            formats,
-          };
-        }).filter(Boolean) as VideoMetadata[];
+      const { results, warnings } = parseYtDlpOutput(raw, platform, cleanUrl);
+      console.log(`[ytDlpService] Parsed data: ${results.length} item(s)`);
 
       if (results.length === 0) {
-        throw new Error("No accessible videos found in the specific URL/Playlist. All tracks were skipped.");
+        throw new Error('No accessible videos found in the specific URL/Playlist. All tracks were skipped.');
       }
 
       return { data: results, warnings };
@@ -352,10 +478,10 @@ export interface DownloadHandle {
  * Start a download and return both the ChildProcess (for cancellation)
  * and a Promise that resolves to the output file path.
  */
-export function downloadVideo(
+export async function downloadVideo(
   options: DownloadOptions,
   onProgress: (progress: DownloadProgress) => void,
-): DownloadHandle {
+): Promise<DownloadHandle> {
   const ytDlpPath = ensureYtDlpExists();
   const ffmpegPath = ensureFFmpegExists();
 
@@ -374,15 +500,30 @@ export function downloadVideo(
     ? path.join(outputDir, `${options.customFileName}.${ext}`)
     : ''; // If no custom name, we'll have to rely on yt-dlp stdout
 
+  // Determine effective cookie args — Facebook gets its own auth strategy
+  let effectiveCookieArgs: string[] = [...cachedCookieArgs];
+
+  if (isFacebookUrl(options.url)) {
+    // Lazy import avoids circular dependency with facebookSessionManager
+    const { facebookSessionManager } = await import('./facebookSessionManager');
+    effectiveCookieArgs = await facebookSessionManager.getWorkingCookieArgs();
+    console.log(`[ytDlpService] Facebook download using cookie args: [${effectiveCookieArgs.join(' ') || 'none'}]`);
+  }
+
   // Build yt-dlp arguments
   const args: string[] = [
     '--ffmpeg-location', path.dirname(ffmpegPath),
-    ...cachedCookieArgs, // Apply the successful cookie args found during fetchVideoInfo
-    '--no-playlist',     // Each task is a single track/video — never download the entire playlist
+    ...effectiveCookieArgs, // Apply cookie args (Facebook-specific or cached generic)
+    '--no-playlist',        // Each task is a single track/video — never download the entire playlist
     '--no-warnings',
-    '--newline',       // ensures progress lines are newline-separated
+    '--newline',            // ensures progress lines are newline-separated
     '-o', outputTemplate,
   ];
+
+  // Facebook rate-limiting: avoid triggering their throttle/ban
+  if (isFacebookUrl(options.url)) {
+    args.push('--sleep-interval', '1', '--max-sleep-interval', '3');
+  }
 
   if (options.platform === 'soundcloud' || options.format === 'mp3') {
     // Extract audio as MP3 (Forced for SoundCloud, optional for YouTube)

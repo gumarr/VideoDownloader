@@ -159,6 +159,17 @@ contextBridge.exposeInMainWorld('api', {
 
   getAppVersion: (): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_APP_VERSION),
+
+  /* ── Facebook Auth ───────────────────────────────── */
+
+  getFacebookAuthStatus: (): Promise<{ isLoggedIn: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FACEBOOK_AUTH_STATUS),
+
+  facebookLogin: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FACEBOOK_LOGIN),
+
+  facebookLogout: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FACEBOOK_LOGOUT),
 });
 
 console.log('[preload] window.api exposed successfully via contextBridge');

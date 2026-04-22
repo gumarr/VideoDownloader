@@ -27,6 +27,8 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [appVersion, setAppVersion] = useState('');
+  const [facebookLoggedIn, setFacebookLoggedIn] = useState(false);
+  const [facebookAuthLoading, setFacebookAuthLoading] = useState(false);
 
   /* Load settings on open */
   useEffect(() => {
@@ -35,6 +37,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         setSettings(s);
       });
       window.api.getAppVersion().then(v => setAppVersion(v));
+      window.api.getFacebookAuthStatus().then(r => setFacebookLoggedIn(r.isLoggedIn));
     }
   }, [isOpen]);
 
@@ -61,6 +64,19 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       setSettings((prev) => ({ ...prev, defaultFolder: dir }));
     }
   }, []);
+
+  /* Facebook account handlers */
+  const handleFacebookConnect = async () => {
+    setFacebookAuthLoading(true);
+    const result = await window.api.facebookLogin();
+    if (result.success) setFacebookLoggedIn(true);
+    setFacebookAuthLoading(false);
+  };
+
+  const handleFacebookDisconnect = async () => {
+    await window.api.facebookLogout();
+    setFacebookLoggedIn(false);
+  };
 
   if (!isOpen) return null;
 
@@ -343,6 +359,72 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   </div>
                 </div>
               )}
+            </div>
+          </section>
+
+          {/* ── Connected Accounts ─────────────────────────────── */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-surface-700 dark:text-surface-200 uppercase tracking-wider">
+              Connected Accounts
+            </h3>
+
+            <div className="p-4 rounded-xl border border-surface-200 dark:border-surface-700">
+              <div className="flex items-center justify-between">
+                {/* Left: Platform info */}
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm flex-shrink-0">
+                    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-surface-900 dark:text-surface-50">Facebook</p>
+                    <p className={`text-xs mt-0.5 ${facebookLoggedIn ? 'text-accent-500' : 'text-surface-400'}`}>
+                      {facebookLoggedIn ? '● Connected' : '○ Not connected'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right: Action button */}
+                {facebookLoggedIn ? (
+                  <button
+                    id="fb-settings-disconnect-btn"
+                    onClick={handleFacebookDisconnect}
+                    className="px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400
+                               hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors cursor-pointer
+                               border border-red-200 dark:border-red-800/50"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    id="fb-settings-connect-btn"
+                    onClick={handleFacebookConnect}
+                    disabled={facebookAuthLoading}
+                    className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500
+                               rounded-lg transition-colors cursor-pointer shadow-sm
+                               disabled:opacity-50 disabled:cursor-not-allowed
+                               flex items-center gap-1.5"
+                  >
+                    {facebookAuthLoading && (
+                      <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10"
+                                stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    )}
+                    Connect
+                  </button>
+                )}
+              </div>
+
+              {/* Info note */}
+              <p className="text-[11px] text-surface-400 dark:text-surface-500 mt-3 leading-relaxed">
+                {facebookLoggedIn
+                  ? 'Your session is saved. Private group videos and restricted content will download automatically.'
+                  : 'Connect to download videos from private groups and restricted posts. Login is saved between sessions.'}
+              </p>
             </div>
           </section>
 

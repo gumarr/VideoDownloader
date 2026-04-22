@@ -1,25 +1,5 @@
 import { useCallback } from 'react';
-
-interface DownloadTask {
-  id: string;
-  url?: string;
-  platform: 'youtube' | 'soundcloud';
-  title: string;
-  thumbnail: string;
-  format: 'mp4' | 'mp3';
-  quality: string;
-  status: 'pending' | 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
-  progress: {
-    percent: number;
-    downloaded: string;
-    total: string;
-    speed: string;
-    eta: string;
-  };
-  filePath?: string;
-  error?: string;
-  addedAt: number;
-}
+import type { DownloadTask } from '../../types/ipc';
 
 interface DownloadQueueProps {
   tasks: DownloadTask[];
@@ -290,6 +270,10 @@ function TaskCard({
               {task.platform === 'soundcloud' ? (
                 <span className="px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold uppercase tracking-wider bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
                   SoundCloud
+                </span>
+              ) : task.platform === 'facebook' ? (
+                <span className="px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold uppercase tracking-wider bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                  Facebook
                 </span>
               ) : (
                 <span className="px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold uppercase tracking-wider bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
