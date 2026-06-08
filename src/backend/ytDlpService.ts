@@ -364,39 +364,40 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
     if (settings.cookieSource === 'file' && settings.cookieFilePath) {
       candidateArgs.push(['--cookies', settings.cookieFilePath]);
     } else {
-      const profileStr = settings.cookieProfile ? `profile=${settings.cookieProfile}` : '';
-      candidateArgs.push(['--cookies-from-browser', profileStr ? `${settings.cookieSource}:${profileStr}` : settings.cookieSource]);
+      // yt-dlp format: BROWSER::PROFILE_NAME (double colon separates browser and profile)
+      const profileName = settings.cookieProfile || 'Default';
+      candidateArgs.push(['--cookies-from-browser', `${settings.cookieSource}::${profileName}`]);
     }
   }
 
   // 3. Fallbacks — only try browsers that are actually installed
   const fallbacks: string[][] = [
-    [], // Baseline (no cookies)
+    [], // Baseline (no cookies) — always try first
   ];
 
   if (process.platform === 'win32') {
     const localAppData = process.env.LOCALAPPDATA || '';
     const appData = process.env.APPDATA || '';
 
-    // Chrome
+    // Chrome — yt-dlp format: chrome::ProfileDir
     const chromeUserData = path.join(localAppData, 'Google', 'Chrome', 'User Data');
     if (fs.existsSync(chromeUserData)) {
-      fallbacks.push(['--cookies-from-browser', 'chrome:profile=Default']);
+      fallbacks.push(['--cookies-from-browser', 'chrome::Default']);
       if (fs.existsSync(path.join(chromeUserData, 'Profile 1'))) {
-        fallbacks.push(['--cookies-from-browser', 'chrome:profile=Profile 1']);
+        fallbacks.push(['--cookies-from-browser', 'chrome::Profile 1']);
       }
       if (fs.existsSync(path.join(chromeUserData, 'Profile 2'))) {
-        fallbacks.push(['--cookies-from-browser', 'chrome:profile=Profile 2']);
+        fallbacks.push(['--cookies-from-browser', 'chrome::Profile 2']);
       }
     }
 
     // Edge
     const edgeUserData = path.join(localAppData, 'Microsoft', 'Edge', 'User Data');
     if (fs.existsSync(edgeUserData)) {
-      fallbacks.push(['--cookies-from-browser', 'edge:profile=Default']);
+      fallbacks.push(['--cookies-from-browser', 'edge::Default']);
     }
 
-    // Firefox
+    // Firefox (no profile dir needed — yt-dlp auto-detects)
     const firefoxProfiles = path.join(appData, 'Mozilla', 'Firefox', 'Profiles');
     if (fs.existsSync(firefoxProfiles)) {
       fallbacks.push(['--cookies-from-browser', 'firefox']);
@@ -404,8 +405,8 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
   } else {
     // Non-Windows: keep original fallbacks for compatibility
     fallbacks.push(
-      ['--cookies-from-browser', 'chrome:profile=Default'],
-      ['--cookies-from-browser', 'edge:profile=Default'],
+      ['--cookies-from-browser', 'chrome::Default'],
+      ['--cookies-from-browser', 'edge::Default'],
       ['--cookies-from-browser', 'firefox'],
     );
   }
@@ -424,6 +425,11 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
   }
 
   let lastError: any = null;
+  // Track the first content-related error separately from cookie infrastructure errors.
+  // This way, if baseline fails with a real YouTube error (e.g. "sign in required"),
+  // but subsequent cookie attempts fail with "could not copy database",
+  // we surface the meaningful content error instead of the cookie error.
+  let firstContentError: any = null;
 
   for (let i = 0; i < uniqueCandidates.length; i++) {
     const cookieArgs = uniqueCandidates[i];
@@ -459,8 +465,30 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
       console.warn(`[ytDlpService] Attempt ${i + 1} failed: ${err.message}`);
       lastError = err;
 
-      // Detect if we should retry
+      // Classify the error
       const msg = err.message.toLowerCase();
+
+      // Cookie infrastructure errors — these mean "this browser can't provide cookies",
+      // NOT "the video itself is inaccessible". Always retry with next candidate.
+      const isCookieInfraError =
+        msg.includes('could not find') ||
+        msg.includes('could not copy') ||
+        msg.includes('failed to decrypt') ||
+        msg.includes('dpapi') ||
+        msg.includes('no cookies were found') ||
+        msg.includes('could not read') ||
+        msg.includes('cookies database');
+
+      if (isCookieInfraError) {
+        console.log(`[ytDlpService] Cookie infrastructure error, trying next candidate...`);
+        continue; // Always skip to next — this is not a content error
+      }
+
+      // Content/auth errors — the video exists but needs auth or is restricted
+      if (!firstContentError) {
+        firstContentError = err;
+      }
+
       const isRecoverable =
         msg.includes('bot') ||
         msg.includes('sign in') ||
@@ -469,8 +497,7 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
         msg.includes('429') ||
         msg.includes('http error') ||
         msg.includes('unable to extract') ||
-        msg.includes('permission denied') ||
-        msg.includes('could not find');
+        msg.includes('permission denied');
 
       if (!isRecoverable) {
         console.warn(`[ytDlpService] Non-recoverable error pattern detected, breaking retry loop.`);
@@ -479,8 +506,10 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
     }
   }
 
-  // If we reach here, all fallbacks failed
-  const errMsg = lastError?.message || 'Unknown processing error';
+  // If we reach here, all fallbacks failed.
+  // Prefer the first content error (the real problem) over cookie infra errors.
+  const bestError = firstContentError || lastError;
+  const errMsg = bestError?.message || 'Unknown processing error';
   let friendlyMsg = 'An unexpected error occurred while fetching video info.';
   const lowerMsg = errMsg.toLowerCase();
 
@@ -493,8 +522,10 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
     friendlyMsg = 'YouTube structure changed or video is restricted. Check your cookie settings.';
   } else if (lowerMsg.includes('could not find') && lowerMsg.includes('cookies')) {
     friendlyMsg = 'No supported browser with cookies found. Please install Chrome, Edge, or Firefox and log in to the target site, or set a cookie source in Settings.';
+  } else if (lowerMsg.includes('could not copy') || lowerMsg.includes('failed to decrypt') || lowerMsg.includes('dpapi')) {
+    friendlyMsg = 'Could not read browser cookies (browser encryption prevents access). Try closing your browser completely, or use a cookies.txt file in Settings.';
   } else {
-    friendlyMsg = `Failed with: ${errMsg.split('\\n')[0].substring(0, 100)}...`;
+    friendlyMsg = `Failed with: ${errMsg.substring(0, 200)}`;
   }
 
   // Clear cache if we failed completely, so next URL tries afresh

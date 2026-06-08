@@ -214,7 +214,7 @@ class FacebookSessionManager {
   async tryChromeBridge(): Promise<'success' | 'locked' | 'not-logged-in' | 'not-found'> {
     const BROWSER_CANDIDATES = [
       'chrome',
-      'chrome:profile=Profile 1',
+      'chrome::Profile 1',
       'edge',
       'firefox',
     ];
