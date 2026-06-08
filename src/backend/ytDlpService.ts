@@ -369,15 +369,47 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
     }
   }
 
-  // 3. Fallbacks
-  const fallbacks = [
+  // 3. Fallbacks — only try browsers that are actually installed
+  const fallbacks: string[][] = [
     [], // Baseline (no cookies)
-    ['--cookies-from-browser', 'chrome:profile=Default'],
-    ['--cookies-from-browser', 'chrome:profile=Profile 1'],
-    ['--cookies-from-browser', 'chrome:profile=Profile 2'],
-    ['--cookies-from-browser', 'edge:profile=Default'],
-    ['--cookies-from-browser', 'firefox']
   ];
+
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA || '';
+    const appData = process.env.APPDATA || '';
+
+    // Chrome
+    const chromeUserData = path.join(localAppData, 'Google', 'Chrome', 'User Data');
+    if (fs.existsSync(chromeUserData)) {
+      fallbacks.push(['--cookies-from-browser', 'chrome:profile=Default']);
+      if (fs.existsSync(path.join(chromeUserData, 'Profile 1'))) {
+        fallbacks.push(['--cookies-from-browser', 'chrome:profile=Profile 1']);
+      }
+      if (fs.existsSync(path.join(chromeUserData, 'Profile 2'))) {
+        fallbacks.push(['--cookies-from-browser', 'chrome:profile=Profile 2']);
+      }
+    }
+
+    // Edge
+    const edgeUserData = path.join(localAppData, 'Microsoft', 'Edge', 'User Data');
+    if (fs.existsSync(edgeUserData)) {
+      fallbacks.push(['--cookies-from-browser', 'edge:profile=Default']);
+    }
+
+    // Firefox
+    const firefoxProfiles = path.join(appData, 'Mozilla', 'Firefox', 'Profiles');
+    if (fs.existsSync(firefoxProfiles)) {
+      fallbacks.push(['--cookies-from-browser', 'firefox']);
+    }
+  } else {
+    // Non-Windows: keep original fallbacks for compatibility
+    fallbacks.push(
+      ['--cookies-from-browser', 'chrome:profile=Default'],
+      ['--cookies-from-browser', 'edge:profile=Default'],
+      ['--cookies-from-browser', 'firefox'],
+    );
+  }
+
   candidateArgs.push(...fallbacks);
 
   // Remove duplicate argument sets
@@ -437,7 +469,8 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
         msg.includes('429') ||
         msg.includes('http error') ||
         msg.includes('unable to extract') ||
-        msg.includes('permission denied');
+        msg.includes('permission denied') ||
+        msg.includes('could not find');
 
       if (!isRecoverable) {
         console.warn(`[ytDlpService] Non-recoverable error pattern detected, breaking retry loop.`);
@@ -458,6 +491,8 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
     friendlyMsg = 'YouTube bot detection triggered or login required. Please close your browser and try again. Make sure you are logged into YouTube.';
   } else if (lowerMsg.includes('unable to extract')) {
     friendlyMsg = 'YouTube structure changed or video is restricted. Check your cookie settings.';
+  } else if (lowerMsg.includes('could not find') && lowerMsg.includes('cookies')) {
+    friendlyMsg = 'No supported browser with cookies found. Please install Chrome, Edge, or Firefox and log in to the target site, or set a cookie source in Settings.';
   } else {
     friendlyMsg = `Failed with: ${errMsg.split('\\n')[0].substring(0, 100)}...`;
   }
