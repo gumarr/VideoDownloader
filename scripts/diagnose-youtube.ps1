@@ -1,28 +1,30 @@
 <#
   diagnose-youtube.ps1
-  ---------------------
-  Script chẩn đoán lỗi "YouTube bot detection / login required" khi fetch video.
+  --------------------
+  Diagnoses the "YouTube bot detection / login required" error on fetch.
 
-  Mục đích: tái hiện CHÍNH XÁC các attempt mà fetchVideoInfo() (ytDlpService.ts)
-  chạy, nhưng in ra STDERR ĐẦY ĐỦ của từng attempt — thứ mà app đã giấu đi
-  sau thông báo lỗi "đã làm đẹp".
+  It reproduces EXACTLY the attempt chain that fetchVideoInfo() runs
+  (ytDlpService.ts), but prints the FULL stderr of each attempt - the part
+  the app hides behind its "prettified" error message.
 
-  Cách dùng trên máy Win10 bị lỗi:
-    1. Copy file này sang máy đó (vd: vào Desktop).
-    2. Mở PowerShell, chạy:
+  Usage on the failing Win10 machine:
+    1. Open the app once (so it copies yt-dlp into userData/bin), then close it.
+    2. Copy this file to that machine (e.g. Desktop).
+    3. Open PowerShell in the folder containing the file and run:
          powershell -ExecutionPolicy Bypass -File .\diagnose-youtube.ps1
-    3. Gửi lại TOÀN BỘ output cho người hỗ trợ.
+    4. Send back the ENTIRE output.
 
-  Script này CHỈ ĐỌC, không sửa gì, không tải video (dùng --skip-download).
+  Read-only: never edits anything, never downloads (uses --skip-download).
+  ASCII-only on purpose so it parses under any console code page.
 #>
 
 $ErrorActionPreference = 'Continue'
 $env:PYTHONIOENCODING = 'utf-8'
 
-# URL test (đổi nếu cần)
+# Test URL (override by passing one as the first argument)
 $TestUrl = if ($args.Count -ge 1) { $args[0] } else { 'https://www.youtube.com/watch?v=Nh2zEJaOMqE' }
 
-# Đường dẫn yt-dlp mà app thực sự dùng (userData/bin), KHÔNG phải bản trong assets
+# Path to the yt-dlp binary the app actually uses (userData/bin), NOT assets
 $YtDlp = Join-Path $env:APPDATA 'videodownloader\bin\yt-dlp.exe'
 
 function Write-Section($title) {
@@ -32,8 +34,8 @@ function Write-Section($title) {
   Write-Output ('=' * 70)
 }
 
-# ─── 0. Môi trường ──────────────────────────────────────────────
-Write-Section '0. THÔNG TIN MÔI TRƯỜNG'
+# --- 0. Environment ---------------------------------------------
+Write-Section '0. ENVIRONMENT'
 $os = Get-CimInstance Win32_OperatingSystem
 Write-Output ("OS            : {0} (Build {1})" -f $os.Caption, $os.BuildNumber)
 Write-Output ("yt-dlp path   : {0}" -f $YtDlp)
@@ -41,40 +43,44 @@ if (Test-Path $YtDlp) {
   Write-Output ("yt-dlp exists : YES ({0} bytes)" -f (Get-Item $YtDlp).Length)
   Write-Output ("yt-dlp version: {0}" -f (& $YtDlp --version 2>&1))
 } else {
-  Write-Output 'yt-dlp exists : NO — app chưa chạy lần nào? Hãy mở app 1 lần rồi chạy lại script.'
-  Write-Output 'DỪNG. Không tìm thấy binary.'
+  Write-Output 'yt-dlp exists : NO - has the app run yet? Open it once, then re-run this script.'
+  Write-Output 'STOP. Binary not found.'
   exit 1
 }
 Write-Output ("Test URL      : {0}" -f $TestUrl)
 
-# ─── 1. Trình duyệt & lock cookie ───────────────────────────────
-Write-Section '1. TRÌNH DUYỆT ĐANG CHẠY & TRẠNG THÁI LOCK COOKIE'
+# --- 1. Browsers running & cookie lock --------------------------
+Write-Section '1. BROWSERS RUNNING & COOKIE LOCK STATE'
 foreach ($b in @('chrome','msedge','firefox')) {
   $p = Get-Process $b -ErrorAction SilentlyContinue
-  if ($p) { Write-Output ("  {0,-8}: ĐANG CHẠY ({1} process)" -f $b, $p.Count) }
-  else    { Write-Output ("  {0,-8}: không chạy" -f $b) }
+  if ($p) {
+    Write-Output ("  {0,-8}: RUNNING ({1} process)" -f $b, $p.Count)
+  } else {
+    Write-Output ("  {0,-8}: not running" -f $b)
+  }
 }
 $chromeCookie = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data\Default\Network\Cookies'
 if (Test-Path $chromeCookie) {
   try {
-    $fs = [System.IO.File]::Open($chromeCookie,'Open','Read','None'); $fs.Close()
-    Write-Output '  Chrome cookie DB: KHÔNG bị lock (đọc được)'
+    $fs = [System.IO.File]::Open($chromeCookie,'Open','Read','None')
+    $fs.Close()
+    Write-Output '  Chrome cookie DB: NOT locked (readable)'
   } catch {
-    Write-Output '  Chrome cookie DB: ĐANG BỊ LOCK (Chrome chưa đóng hẳn)'
+    Write-Output '  Chrome cookie DB: LOCKED (Chrome not fully closed)'
   }
 }
 
-# ─── Helper chạy 1 attempt ──────────────────────────────────────
+# --- Helper: run one attempt ------------------------------------
 function Invoke-Attempt {
   param([string]$Label, [string[]]$CookieArgs)
 
   Write-Section "ATTEMPT: $Label"
-  $errFile = Join-Path $env:TEMP ('ytdiag_{0}.err' -f ([guid]::NewGuid().ToString('N')))
+  $errFile = Join-Path $env:TEMP ('ytdiag_' + [guid]::NewGuid().ToString('N') + '.err')
   $allArgs = @()
   $allArgs += $CookieArgs
   $allArgs += @('-J','--no-playlist','--no-warnings','--skip-download',$TestUrl)
 
-  Write-Output ("Lệnh: yt-dlp {0}" -f ($allArgs -join ' '))
+  Write-Output ("Command: yt-dlp {0}" -f ($allArgs -join ' '))
   $null = & $YtDlp @allArgs 2> $errFile
   $code = $LASTEXITCODE
   $stderr = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
@@ -82,17 +88,17 @@ function Invoke-Attempt {
 
   Write-Output ("ExitCode: {0}" -f $code)
   if ($code -eq 0) {
-    Write-Output '>>> KẾT QUẢ: THÀNH CÔNG ✓'
+    Write-Output '>>> RESULT: SUCCESS'
   } else {
-    Write-Output '>>> KẾT QUẢ: THẤT BẠI ✗'
-    Write-Output '--- stderr đầy đủ ---'
-    Write-Output ($stderr.Trim())
+    Write-Output '>>> RESULT: FAILED'
+    Write-Output '--- full stderr ---'
+    if ($stderr) { Write-Output ($stderr.Trim()) }
   }
   return $code
 }
 
-# ─── 2. Tái hiện chuỗi attempt giống fetchVideoInfo ─────────────
-# Thứ tự: baseline (no cookie) → chrome::Default → chrome::Profile 1/2 → edge → firefox
+# --- 2. Reproduce the fetchVideoInfo attempt chain --------------
+# Order: baseline (no cookie) -> chrome::Default -> chrome::Profile 1 -> edge -> firefox
 $results = [ordered]@{}
 $results['No cookies (baseline)'] = (Invoke-Attempt 'No cookies (baseline)' @())
 
@@ -112,18 +118,18 @@ if (Test-Path $ffBase) {
   $results['firefox'] = (Invoke-Attempt 'firefox' @('--cookies-from-browser','firefox'))
 }
 
-# ─── 3. Các thử nghiệm vượt bot detection (không cần cookie) ─────
-# Đây là phần KEY: nếu baseline fail vì bot, thử các player_client khác.
-$results['player_client=android'] = (Invoke-Attempt 'extractor-args player_client=android' @('--extractor-args','youtube:player_client=android'))
-$results['player_client=ios']     = (Invoke-Attempt 'extractor-args player_client=ios'     @('--extractor-args','youtube:player_client=ios'))
+# --- 3. Bot-detection bypass tests (no cookies needed) ----------
+# KEY part: if baseline fails on bot detection, try alternate player clients.
+$results['player_client=android']    = (Invoke-Attempt 'extractor-args player_client=android'    @('--extractor-args','youtube:player_client=android'))
+$results['player_client=ios']        = (Invoke-Attempt 'extractor-args player_client=ios'        @('--extractor-args','youtube:player_client=ios'))
 $results['player_client=web_safari'] = (Invoke-Attempt 'extractor-args player_client=web_safari' @('--extractor-args','youtube:player_client=web_safari'))
-$results['player_client=tv']      = (Invoke-Attempt 'extractor-args player_client=tv'      @('--extractor-args','youtube:player_client=tv'))
+$results['player_client=tv']         = (Invoke-Attempt 'extractor-args player_client=tv'         @('--extractor-args','youtube:player_client=tv'))
 
-# ─── 4. Tổng kết ────────────────────────────────────────────────
-Write-Section '4. TỔNG KẾT'
+# --- 4. Summary -------------------------------------------------
+Write-Section '4. SUMMARY'
 foreach ($k in $results.Keys) {
-  $status = if ($results[$k] -eq 0) { 'THÀNH CÔNG ✓' } else { 'THẤT BẠI ✗' }
+  $status = if ($results[$k] -eq 0) { 'SUCCESS' } else { 'FAILED' }
   Write-Output ("  {0,-35} : {1}" -f $k, $status)
 }
 Write-Output ''
-Write-Output 'Hãy gửi lại TOÀN BỘ output ở trên (đặc biệt phần stderr của các attempt THẤT BẠI).'
+Write-Output 'Send back the ENTIRE output above (especially the stderr of FAILED attempts).'
