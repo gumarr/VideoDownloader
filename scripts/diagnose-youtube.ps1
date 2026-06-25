@@ -22,12 +22,20 @@
 $ErrorActionPreference = 'Continue'
 $env:PYTHONIOENCODING = 'utf-8'
 
-# Collect every line here, then write once as UTF-8 (no UTF-16 / spacing issues)
-$script:Log = New-Object System.Collections.Generic.List[string]
+# Resolve the script's folder robustly. $PSScriptRoot can be empty when invoked
+# via `powershell -File`, so fall back to MyInvocation, then the current dir.
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+$OutPath = Join-Path $ScriptDir 'ket-qua.txt'
+
+# Write each line to console AND append to the output file immediately, so the
+# file always exists with content even if an attempt hangs or the script dies.
+Set-Content -Path $OutPath -Value '' -Encoding utf8 -ErrorAction SilentlyContinue
 function Out-Log {
   param([string]$Line = '')
-  $script:Log.Add($Line)
   Write-Host $Line
+  Add-Content -Path $OutPath -Value $Line -Encoding utf8 -ErrorAction SilentlyContinue
 }
 
 # Test URL (override by passing one as the first argument)
@@ -62,10 +70,12 @@ if ($YtDlp -and (Test-Path $YtDlp)) {
   Out-Log ("yt-dlp version: {0}" -f (& $YtDlp --version 2>&1))
 } else {
   Out-Log 'yt-dlp exists : NO - open the app once, then re-run this script.'
-  $script:Log -join "`r`n" | Out-File -FilePath (Join-Path $PSScriptRoot 'ket-qua.txt') -Encoding utf8
   Out-Log 'STOP. Binary not found.'
+  Write-Host ''
+  Write-Host ("Saved to: {0}" -f $OutPath)
   exit 1
 }
+Out-Log ("Output file   : {0}" -f $OutPath)
 Out-Log ("Test URL      : {0}" -f $TestUrl)
 
 # --- 1. Browsers running & cookie lock --------------------------
@@ -90,37 +100,60 @@ function Invoke-Attempt {
   param([string]$Label, [string[]]$CookieArgs, [int]$TimeoutSec = 45)
 
   Write-Section "ATTEMPT: $Label"
-  $outFile = Join-Path $env:TEMP ('ytdiag_' + [guid]::NewGuid().ToString('N') + '.out')
-  $errFile = Join-Path $env:TEMP ('ytdiag_' + [guid]::NewGuid().ToString('N') + '.err')
   $allArgs = @()
   $allArgs += $CookieArgs
   $allArgs += @('-J','--no-playlist','--no-warnings','--skip-download',$TestUrl)
 
   Out-Log ("Command: yt-dlp {0}" -f ($allArgs -join ' '))
 
-  $proc = Start-Process -FilePath $YtDlp -ArgumentList $allArgs -NoNewWindow -PassThru `
-            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-  if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
-    try { $proc.Kill() } catch {}
-    Start-Sleep -Milliseconds 300
-    Out-Log (">>> RESULT: TIMEOUT (killed after ${TimeoutSec}s - likely a hang/lock)")
-    $stderr = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
-    if ($stderr) { Out-Log '--- partial stderr ---'; Out-Log ($stderr.Trim()) }
-    Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
-    return 124
+  # Use System.Diagnostics.Process directly for a reliable ExitCode and clean
+  # async stdout/stderr capture (Start-Process -PassThru does not report
+  # ExitCode reliably after WaitForExit with a timeout).
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $YtDlp
+  foreach ($a in $allArgs) { [void]$psi.ArgumentList.Add($a) }
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError  = $true
+  $psi.UseShellExecute        = $false
+  $psi.CreateNoWindow         = $true
+  $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
+
+  $p = New-Object System.Diagnostics.Process
+  $p.StartInfo = $psi
+  $sbOut = New-Object System.Text.StringBuilder
+  $sbErr = New-Object System.Text.StringBuilder
+  $onOut = Register-ObjectEvent $p OutputDataReceived -Action { if ($EventArgs.Data) { [void]$Event.MessageData.Append($EventArgs.Data); [void]$Event.MessageData.Append("`n") } } -MessageData $sbOut
+  $onErr = Register-ObjectEvent $p ErrorDataReceived  -Action { if ($EventArgs.Data) { [void]$Event.MessageData.Append($EventArgs.Data); [void]$Event.MessageData.Append("`n") } } -MessageData $sbErr
+
+  [void]$p.Start()
+  $p.BeginOutputReadLine()
+  $p.BeginErrorReadLine()
+
+  $code = $null
+  if ($p.WaitForExit($TimeoutSec * 1000)) {
+    $code = $p.ExitCode
+  } else {
+    try { $p.Kill() } catch {}
+    $code = 124
   }
+  Start-Sleep -Milliseconds 200  # let async handlers flush
+  Unregister-Event -SourceIdentifier $onOut.Name -ErrorAction SilentlyContinue
+  Unregister-Event -SourceIdentifier $onErr.Name -ErrorAction SilentlyContinue
+  $p.Dispose()
 
-  $code = $proc.ExitCode
-  $stderr = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
-  Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
+  $stderr = $sbErr.ToString().Trim()
 
-  Out-Log ("ExitCode: {0}" -f $code)
-  if ($code -eq 0) {
+  if ($code -eq 124) {
+    Out-Log (">>> RESULT: TIMEOUT (killed after ${TimeoutSec}s - likely a hang/lock)")
+    if ($stderr) { Out-Log '--- partial stderr ---'; Out-Log $stderr }
+  } elseif ($code -eq 0) {
+    Out-Log 'ExitCode: 0'
     Out-Log '>>> RESULT: SUCCESS'
   } else {
+    Out-Log ("ExitCode: {0}" -f $code)
     Out-Log '>>> RESULT: FAILED'
     Out-Log '--- full stderr ---'
-    if ($stderr) { Out-Log ($stderr.Trim()) }
+    if ($stderr) { Out-Log $stderr }
   }
   return $code
 }
@@ -158,10 +191,6 @@ foreach ($k in $results.Keys) {
   Out-Log ("  {0,-35} : {1}" -f $k, $status)
 }
 Out-Log ''
-Out-Log 'Done. Send back the ket-qua.txt file written next to this script.'
-
-# --- Write the log as clean UTF-8 -------------------------------
-$outPath = Join-Path $PSScriptRoot 'ket-qua.txt'
-$script:Log -join "`r`n" | Out-File -FilePath $outPath -Encoding utf8
+Out-Log 'Done.'
 Write-Host ''
-Write-Host ("Saved to: {0}" -f $outPath)
+Write-Host ("Saved to: {0}" -f $OutPath)
