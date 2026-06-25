@@ -24,8 +24,31 @@ $env:PYTHONIOENCODING = 'utf-8'
 # Test URL (override by passing one as the first argument)
 $TestUrl = if ($args.Count -ge 1) { $args[0] } else { 'https://www.youtube.com/watch?v=Nh2zEJaOMqE' }
 
-# Path to the yt-dlp binary the app actually uses (userData/bin), NOT assets
-$YtDlp = Join-Path $env:APPDATA 'videodownloader\bin\yt-dlp.exe'
+# Path to the yt-dlp binary the app actually uses (userData/bin), NOT assets.
+# Try the expected location first; if missing, auto-discover any yt-dlp.exe
+# under %APPDATA% / %LOCALAPPDATA% (productName/userData dir can differ).
+function Resolve-YtDlp {
+  # productName in package.json is "Video Downloader" (with a space), so the
+  # installed build's userData dir is "...\Roaming\Video Downloader\bin".
+  # Dev/older builds may use "videodownloader". Try both known names first.
+  $candidates = @(
+    (Join-Path $env:APPDATA 'Video Downloader\bin\yt-dlp.exe'),
+    (Join-Path $env:APPDATA 'videodownloader\bin\yt-dlp.exe')
+  )
+  foreach ($c in $candidates) { if (Test-Path $c) { return $c } }
+
+  Write-Output 'yt-dlp not at expected path - scanning for it...'
+  $hits = Get-ChildItem -Path $env:APPDATA, $env:LOCALAPPDATA -Recurse -Filter 'yt-dlp.exe' -ErrorAction SilentlyContinue
+  foreach ($h in $hits) { Write-Output ("  found: {0}" -f $h.FullName) }
+
+  # Prefer one inside a 'bin' folder (the app's runtime copy)
+  $preferred = $hits | Where-Object { $_.DirectoryName -like '*\bin' } | Select-Object -First 1
+  if ($preferred) { return $preferred.FullName }
+  if ($hits) { return ($hits | Select-Object -First 1).FullName }
+  return $null
+}
+
+$YtDlp = Resolve-YtDlp
 
 function Write-Section($title) {
   Write-Output ''
@@ -38,12 +61,13 @@ function Write-Section($title) {
 Write-Section '0. ENVIRONMENT'
 $os = Get-CimInstance Win32_OperatingSystem
 Write-Output ("OS            : {0} (Build {1})" -f $os.Caption, $os.BuildNumber)
-Write-Output ("yt-dlp path   : {0}" -f $YtDlp)
-if (Test-Path $YtDlp) {
+if ($YtDlp -and (Test-Path $YtDlp)) {
+  Write-Output ("yt-dlp path   : {0}" -f $YtDlp)
   Write-Output ("yt-dlp exists : YES ({0} bytes)" -f (Get-Item $YtDlp).Length)
   Write-Output ("yt-dlp version: {0}" -f (& $YtDlp --version 2>&1))
 } else {
-  Write-Output 'yt-dlp exists : NO - has the app run yet? Open it once, then re-run this script.'
+  Write-Output 'yt-dlp exists : NO - could not find yt-dlp.exe anywhere under APPDATA/LOCALAPPDATA.'
+  Write-Output 'Open the app once (so it installs the binary), then re-run this script.'
   Write-Output 'STOP. Binary not found.'
   exit 1
 }
