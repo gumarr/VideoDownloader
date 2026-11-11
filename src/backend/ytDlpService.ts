@@ -297,9 +297,10 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
     }
     fbCandidates.push([]); // always try without auth as last resort
 
-    let lastFbError: any = null;
+    const hasAuth = fbCookieArgs.length > 0;
+    let firstFbError: any = null;
 
-    for (const cookieArgs of fbCandidates) {
+    for (const [i, cookieArgs] of fbCandidates.entries()) {
       const logLabel = cookieArgs.length ? cookieArgs.join(' ') : 'No cookies';
       console.log(`[ytDlpService] Facebook fetch attempt using: [${logLabel}]`);
 
@@ -322,7 +323,7 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
         console.log(`[ytDlpService] Facebook fetch succeeded: ${results.length} item(s)`);
         return { data: results, warnings };
       } catch (err: any) {
-        lastFbError = err;
+        firstFbError ??= err;
         const msg = err.message;
 
         // Rate-limit / HTTP 429 — surface a clear message, NOT the auth prompt
@@ -334,8 +335,10 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
           throw new Error('Facebook rate limit hit. Please wait a moment and try again.');
         }
 
-        // Detect auth-required signals → surface immediately to the renderer
-        if (isFacebookAuthError(msg)) {
+        // Auth signal on the FIRST attempt only (the logged-in one if we have cookies).
+        // The no-cookie fallback after a logged-in failure always "needs login" for
+        // private content — classifying it would hide the real error behind a login prompt.
+        if (i === 0 && isFacebookAuthError(msg)) {
           throw new Error('FACEBOOK_AUTH_REQUIRED: ' + msg);
         }
 
@@ -344,11 +347,15 @@ export async function fetchVideoInfo(url: string, platform?: SupportedPlatform):
       }
     }
 
-    // All Facebook candidates exhausted
-    throw new Error(
-      'FACEBOOK_AUTH_REQUIRED: All auth attempts failed. ' +
-      (lastFbError?.message || 'Unknown error'),
-    );
+    const firstMsg = firstFbError?.message || 'Unknown error';
+    if (hasAuth) {
+      // Logged in but yt-dlp still failed — show the logged-in attempt's real error.
+      throw new Error(
+        `Facebook download failed even with your login (${firstMsg}). ` +
+        'Update yt-dlp in Settings, or log out and log in to Facebook again.',
+      );
+    }
+    throw new Error('FACEBOOK_AUTH_REQUIRED: All auth attempts failed. ' + firstMsg);
   }
 
   /* ── YouTube / SoundCloud: existing generic cookie chain ── */

@@ -81,6 +81,14 @@ export const facebookHandler: PlatformHandler = {
     try {
       const parsed = new URL(url);
 
+      // Group feed link (/groups/X/?multi_permalinks=Y) → permalink yt-dlp understands.
+      // Otherwise the post id gets stripped below and only the group page remains.
+      const groupMatch = parsed.pathname.match(/^\/groups\/([^/]+)\/?$/i);
+      const postId = parsed.searchParams.get('multi_permalinks')?.split(',')[0];
+      if (groupMatch && postId) {
+        return `${parsed.origin}/groups/${groupMatch[1]}/permalink/${postId}/`;
+      }
+
       // Delete explicit strip-list params (including array-style variants like __cft__[])
       const keysToDelete: string[] = [];
       for (const key of parsed.searchParams.keys()) {
