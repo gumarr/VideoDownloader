@@ -69,7 +69,7 @@ function ensureYtDlpExists(): string {
   return ensureBinaryExists('yt-dlp.exe');
 }
 
-function ensureFFmpegExists(): string {
+export function ensureFFmpegExists(): string {
   return ensureBinaryExists('ffmpeg.exe');
 }
 

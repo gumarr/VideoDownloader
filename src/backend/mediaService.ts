@@ -1,12 +1,13 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { IPC_CHANNELS, DownloadOptions, AppSettings, DownloadTask, DownloadTaskProgress, SupportedPlatform } from '../types/ipc';
+import { IPC_CHANNELS, AudioExtractMode, DownloadOptions, AppSettings, DownloadTask, DownloadTaskProgress, SupportedPlatform } from '../types/ipc';
 import { fetchVideoInfo } from './ytDlpService';
 import { getSettings, saveSettings, updateSettings, loadSettings } from './settingsService';
 import { downloadManager } from './downloadManager';
 import { checkForUpdates, installUpdate } from './ytDlpUpdater';
 import { facebookSessionManager } from './facebookSessionManager';
+import { extractAudio, cancelExtraction, clearTempRoot, isOwnTempFile, moveToDestination, uniquePath } from './audioExtractService';
 
 /**
  * Register all IPC handlers.
@@ -297,6 +298,81 @@ export function attachMediaHandlers() {
       return { success: true };
     } catch (err: any) {
       console.error('[IPC] facebook-logout error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  /* ── Local video → audio ──────────────────────────────── */
+
+  // Leftovers from a previous session (extracted but never saved)
+  clearTempRoot();
+
+  ipcMain.handle(IPC_CHANNELS.SELECT_VIDEO_FILES, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+      title: 'Select video files',
+      filters: [
+        { name: 'Videos', extensions: ['mp4', 'mkv', 'mov', 'avi', 'webm', 'flv', 'wmv', 'm4v', 'ts', '3gp', 'mpg', 'mpeg'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.EXTRACT_AUDIO, async (event, inputPath: string, mode: AudioExtractMode) => {
+    if (!inputPath || !fs.existsSync(inputPath)) {
+      return { success: false, error: 'Video file not found.' };
+    }
+    try {
+      const tempPath = await extractAudio(inputPath, mode === 'original' ? 'original' : 'mp3', (percent) => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.EXTRACT_AUDIO_PROGRESS, percent);
+      });
+      return { success: true, tempPath };
+    } catch (err: any) {
+      if (err.message === 'CANCELLED') return { success: false, cancelled: true };
+      console.error('[IPC] extract-audio error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CANCEL_EXTRACT_AUDIO, async () => {
+    cancelExtraction();
+    return { success: true };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_EXTRACTED_AUDIO, async (_event, tempPaths: string[], defaultDir: string) => {
+    if (!Array.isArray(tempPaths) || tempPaths.length === 0 || !tempPaths.every(isOwnTempFile)) {
+      return { success: false, error: 'Extracted file not found. Please extract again.' };
+    }
+    try {
+      let savedPaths: string[];
+      if (tempPaths.length === 1) {
+        const name = path.basename(tempPaths[0]);
+        const ext = path.extname(name).slice(1);
+        const r = await dialog.showSaveDialog({
+          title: 'Save Audio As',
+          defaultPath: path.join(defaultDir, name),
+          filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+        });
+        if (r.canceled || !r.filePath) return { success: false, canceled: true };
+        moveToDestination(tempPaths[0], r.filePath);
+        savedPaths = [r.filePath];
+      } else {
+        const r = await dialog.showOpenDialog({
+          title: `Choose a folder to save ${tempPaths.length} audio files`,
+          defaultPath: defaultDir,
+          properties: ['openDirectory', 'createDirectory'],
+        });
+        if (r.canceled || !r.filePaths[0]) return { success: false, canceled: true };
+        savedPaths = tempPaths.map((p) => {
+          const dest = uniquePath(r.filePaths[0], path.basename(p)); // never overwrite silently
+          moveToDestination(p, dest);
+          return dest;
+        });
+      }
+      return { success: true, savedPaths };
+    } catch (err: any) {
+      console.error('[IPC] save-extracted-audio error:', err.message);
       return { success: false, error: err.message };
     }
   });

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, AppSettings, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress, SupportedPlatform } from '../types/ipc';
+import { IPC_CHANNELS, AppSettings, AudioExtractMode, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress, SupportedPlatform } from '../types/ipc';
 
 console.log('[preload] Preload script starting...');
 
@@ -170,6 +170,25 @@ contextBridge.exposeInMainWorld('api', {
 
   facebookLogout: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.FACEBOOK_LOGOUT),
+
+  /* ── Local video → audio ─────────────────────────── */
+
+  selectVideoFiles: (): Promise<string[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SELECT_VIDEO_FILES),
+
+  extractAudio: (inputPath: string, mode: AudioExtractMode, onProgress: (percent: number) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, percent: number) => onProgress(percent);
+    ipcRenderer.on(IPC_CHANNELS.EXTRACT_AUDIO_PROGRESS, handler);
+    return ipcRenderer.invoke(IPC_CHANNELS.EXTRACT_AUDIO, inputPath, mode).finally(() => {
+      ipcRenderer.removeListener(IPC_CHANNELS.EXTRACT_AUDIO_PROGRESS, handler);
+    });
+  },
+
+  cancelExtractAudio: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.CANCEL_EXTRACT_AUDIO),
+
+  saveExtractedAudio: (tempPaths: string[], defaultDir: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_EXTRACTED_AUDIO, tempPaths, defaultDir),
 });
 
 console.log('[preload] window.api exposed successfully via contextBridge');

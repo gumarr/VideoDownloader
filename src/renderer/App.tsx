@@ -8,6 +8,7 @@ import DebugPanel from './components/DebugPanel';
 import UpdateModal from './components/UpdateModal';
 import AppUpdateModal from './components/AppUpdateModal';
 import FacebookAuthPrompt from './components/FacebookAuthPrompt';
+import AudioExtractor from './components/AudioExtractor';
 import { detectPlatform } from './utils/platformDetect';
 import type { SupportedPlatform, DownloadTask } from '../types/ipc';
 
@@ -39,6 +40,9 @@ export default function App() {
 
   /* Platform */
   const [platform, setPlatform] = useState<SupportedPlatform>('youtube');
+
+  /* Tools: local video → MP3 view */
+  const [showExtractor, setShowExtractor] = useState(false);
 
   /* Facebook auth */
   const [facebookLoggedIn, setFacebookLoggedIn] = useState(false);
@@ -380,9 +384,9 @@ export default function App() {
         <aside className="w-full md:w-56 shrink-0 space-y-2 relative">
           <h2 className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-4 px-2">Platforms</h2>
           <button 
-            onClick={() => setPlatform('youtube')}
+            onClick={() => { setPlatform('youtube'); setShowExtractor(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
-                        ${platform === 'youtube' 
+                        ${!showExtractor && platform === 'youtube' 
                           ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 shadow-sm border border-red-100 dark:border-red-900/30' 
                           : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent'}`}
           >
@@ -393,9 +397,9 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => setPlatform('soundcloud')}
+            onClick={() => { setPlatform('soundcloud'); setShowExtractor(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
-                        ${platform === 'soundcloud' 
+                        ${!showExtractor && platform === 'soundcloud' 
                           ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 shadow-sm border border-orange-100 dark:border-orange-900/30' 
                           : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent'}`}
           >
@@ -410,9 +414,9 @@ export default function App() {
           {/* Facebook */}
           <div className="space-y-1">
             <button
-              onClick={() => { setPlatform('facebook'); setNeedsFacebookAuth(false); }}
+              onClick={() => { setPlatform('facebook'); setNeedsFacebookAuth(false); setShowExtractor(false); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
-                          ${platform === 'facebook'
+                          ${!showExtractor && platform === 'facebook'
                             ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm border border-blue-100 dark:border-blue-900/30'
                             : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent'}`}
             >
@@ -423,7 +427,7 @@ export default function App() {
             </button>
 
             {/* Auth status indicator — only shown when Facebook is selected */}
-            {platform === 'facebook' && (
+            {!showExtractor && platform === 'facebook' && (
               <div className="flex items-center gap-2 px-4 py-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0
                   ${facebookLoggedIn ? 'bg-accent-500' : 'bg-surface-400'}`} />
@@ -435,8 +439,31 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {hasElectronAPI && (
+            <>
+              <h2 className="text-xs font-semibold text-surface-400 uppercase tracking-wider pt-4 mb-4 px-2">Tools</h2>
+              <button
+                onClick={() => setShowExtractor(true)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
+                            ${showExtractor
+                              ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 shadow-sm border border-primary-100 dark:border-primary-900/30'
+                              : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent'}`}
+              >
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+                Extract Audio
+              </button>
+            </>
+          )}
         </aside>
 
+        {showExtractor ? (
+          <main className="flex-1 w-full space-y-6">
+            <AudioExtractor />
+          </main>
+        ) : (
         <main className="flex-1 w-full space-y-6">
           {/* URL Input */}
           <UrlInput
@@ -546,6 +573,7 @@ export default function App() {
             onClearAllTasks={handleClearAllTasks}
           />
         </main>
+        )}
       </div>
 
       {/* ─── Footer ─────────────────────────── */}

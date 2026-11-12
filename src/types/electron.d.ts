@@ -1,4 +1,4 @@
-import { AppSettings, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress, SupportedPlatform, VideoMetadata } from './ipc';
+import { AppSettings, AudioExtractMode, DownloadOptions, DownloadProgress, DownloadTask, DownloadTaskProgress, SupportedPlatform, VideoMetadata } from './ipc';
 
 /** Shape of the API exposed to the renderer via contextBridge */
 export interface ElectronAPI {
@@ -88,6 +88,24 @@ export interface ElectronAPI {
   facebookLogin: () => Promise<{ success: boolean; error?: string }>;
   facebookLogout: () => Promise<{ success: boolean }>;
   getFacebookAuthStatus: () => Promise<{ isLoggedIn: boolean }>;
+
+  /* ── Local video → audio ── */
+  selectVideoFiles: () => Promise<string[]>;
+  /** Extracts into a temp file; call saveExtractedAudio afterwards to let the user pick the destination. */
+  extractAudio: (inputPath: string, mode: AudioExtractMode, onProgress: (percent: number) => void) => Promise<{
+    success: boolean;
+    tempPath?: string;
+    cancelled?: boolean;
+    error?: string;
+  }>;
+  cancelExtractAudio: () => Promise<{ success: boolean }>;
+  /** 1 file → "Save As" dialog; several → folder picker. `canceled` = user dismissed the dialog. */
+  saveExtractedAudio: (tempPaths: string[], defaultDir: string) => Promise<{
+    success: boolean;
+    savedPaths?: string[];
+    canceled?: boolean;
+    error?: string;
+  }>;
 }
 
 declare global {

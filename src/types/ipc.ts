@@ -68,6 +68,9 @@ export interface DownloadTask {
   addedAt: number;  // Date.now() timestamp
 }
 
+/** Local video → audio: 'mp3' = re-encode 320 kbps, 'original' = copy audio stream as-is (lossless) */
+export type AudioExtractMode = 'mp3' | 'original';
+
 /** User-configurable application settings */
 export interface AppSettings {
   saveMode: 'ask' | 'default';       // "Ask every time" vs "Default folder"
@@ -138,4 +141,12 @@ export const IPC_CHANNELS = {
   FACEBOOK_LOGIN: 'facebook-login',
   FACEBOOK_LOGOUT: 'facebook-logout',
   FACEBOOK_AUTH_STATUS: 'facebook-auth-status',
+
+  // Local video → audio
+  SELECT_VIDEO_FILES: 'select-video-files',
+  EXTRACT_AUDIO: 'extract-audio',
+  CANCEL_EXTRACT_AUDIO: 'cancel-extract-audio',
+  SAVE_EXTRACTED_AUDIO: 'save-extracted-audio',
+  // Main → Renderer push events
+  EXTRACT_AUDIO_PROGRESS: 'extract-audio-progress',
 } as const;

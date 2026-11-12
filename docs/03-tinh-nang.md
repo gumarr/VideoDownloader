@@ -28,6 +28,7 @@ Danh sách đầy đủ những gì dự án **đã làm được**, nhóm theo 
 - ✅ SoundCloud luôn ép sang MP3.
 - ✅ Đặt tên file tùy chỉnh hoặc dùng `%(title)s` mặc định.
 - ✅ Merge video+audio sang MP4 bằng ffmpeg.
+- ✅ **Tách audio từ video trong máy** (v1.5.0): sidebar *Tools → Extract Audio* → chọn 1 hoặc nhiều video → tách vào thư mục tạm (`%TEMP%/VideoDownloader-audio`, tự dọn khi mở app) → **sau khi tách** mới hỏi nơi lưu (1 file: Save As; nhiều file: chọn thư mục, trùng tên tự thêm ` (n)`). Hai chế độ: **MP3 320 kbps** (giữ sample rate, kênh, metadata) hoặc **Original (lossless)** — copy nguyên luồng audio, không nén lại (aac→.m4a, opus→.opus, pcm→.wav, … khác→.mka). Có thanh tiến độ từng file và nút Cancel — [audioExtractService.ts](../src/backend/audioExtractService.ts), [AudioExtractor.tsx](../src/renderer/components/AudioExtractor.tsx).
 
 ## 4. Đăng nhập Facebook & cookie
 
